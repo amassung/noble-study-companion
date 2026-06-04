@@ -1,7 +1,15 @@
 import { useSyncExternalStore } from "react";
 import type { Subject } from "@/components/NoteCard";
+import type { StudyGuide } from "@/lib/study-guide.functions";
+
+export type SavedGuide = {
+  id: string;
+  createdAt: number;
+  guide: StudyGuide;
+};
 
 export type StoredNote = {
+  guides?: SavedGuide[];
   id: string;
   title: string;
   body: string;
