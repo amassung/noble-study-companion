@@ -150,6 +150,28 @@ export function deleteNote(id: string) {
   }
 }
 
+export function addGuide(noteId: string, guide: StudyGuide): SavedGuide {
+  const saved: SavedGuide = {
+    id: `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    createdAt: Date.now(),
+    guide,
+  };
+  cache = cache.map((n) =>
+    n.id === noteId ? { ...n, guides: [saved, ...(n.guides ?? [])], updatedAt: Date.now() } : n,
+  );
+  persist();
+  emit();
+  return saved;
+}
+
+export function deleteGuide(noteId: string, guideId: string) {
+  cache = cache.map((n) =>
+    n.id === noteId ? { ...n, guides: (n.guides ?? []).filter((g) => g.id !== guideId) } : n,
+  );
+  persist();
+  emit();
+}
+
 export function formatRelative(ts: number): string {
   const diff = Date.now() - ts;
   const m = Math.round(diff / 60000);
