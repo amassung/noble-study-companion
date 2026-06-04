@@ -27,6 +27,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("saved");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
+  const allNotes = useNotes();
+  const liveNote = allNotes.find((n) => n.id === noteId);
+  const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
