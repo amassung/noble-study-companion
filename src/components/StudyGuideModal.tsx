@@ -3,14 +3,17 @@ import { useServerFn } from "@tanstack/react-start";
 import { Sparkles, X, Copy, Download, Check, AlertCircle, BookOpen, Tag, HelpCircle } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { generateStudyGuide, type StudyGuide } from "@/lib/study-guide.functions";
+import { addGuide } from "@/lib/notes-store";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   note: { title: string; body: string; subjectLabel?: string };
+  noteId?: string;
+  initialGuide?: StudyGuide;
 };
 
-export function StudyGuideModal({ open, onClose, note }: Props) {
+export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: Props) {
   const callGenerate = useServerFn(generateStudyGuide);
   const [guide, setGuide] = useState<StudyGuide | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,6 +31,12 @@ export function StudyGuideModal({ open, onClose, note }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    if (initialGuide) {
+      setGuide(initialGuide);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setGuide(null);
     setError(null);
@@ -43,6 +52,7 @@ export function StudyGuideModal({ open, onClose, note }: Props) {
       .then((g) => {
         if (cancelled) return;
         setGuide(g);
+        if (noteId) addGuide(noteId, g);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -55,7 +65,7 @@ export function StudyGuideModal({ open, onClose, note }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, note.title, note.body, note.subjectLabel, callGenerate]);
+  }, [open, note.title, note.body, note.subjectLabel, callGenerate, noteId, initialGuide]);
 
   if (!open) return null;
 

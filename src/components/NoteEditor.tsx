@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Trash2, Sparkles, Loader2 } from "lucide-react";
-import { deleteNote, formatRelative, getNote, updateNote, type StoredNote } from "@/lib/notes-store";
+import { ArrowLeft, Check, Trash2, Sparkles, Loader2, ChevronDown, BookOpen, Tag, HelpCircle } from "lucide-react";
+import { deleteNote, formatRelative, getNote, updateNote, useNotes, type StoredNote, type SavedGuide } from "@/lib/notes-store";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
+import type { StudyGuide } from "@/lib/study-guide.functions";
 
 type Props = {
   noteId: string;
@@ -26,6 +27,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("saved");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
+  const allNotes = useNotes();
+  const liveNote = allNotes.find((n) => n.id === noteId);
+  const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -197,6 +202,28 @@ export function NoteEditor({ noteId, onClose }: Props) {
               </span>
             </span>
           </button>
+
+          {/* Saved Study Guides */}
+          {savedGuides.length > 0 && (
+            <section className="mt-10">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </span>
+                  <h3 className="text-[14px] font-semibold tracking-tight">Study Guides</h3>
+                  <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                    {savedGuides.length}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {savedGuides.map((sg) => (
+                  <SavedGuideRow key={sg.id} saved={sg} onOpen={() => setViewGuide(sg.guide)} />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
 
@@ -205,6 +232,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
           open={guideOpen}
           onClose={() => setGuideOpen(false)}
           note={{ title, body, subjectLabel }}
+          noteId={noteId}
+        />
+      )}
+
+      {viewGuide && (
+        <StudyGuideModal
+          open={!!viewGuide}
+          onClose={() => setViewGuide(null)}
+          note={{ title, body, subjectLabel }}
+          initialGuide={viewGuide}
         />
       )}
 
@@ -239,6 +276,120 @@ export function NoteEditor({ noteId, onClose }: Props) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SavedGuideRow({ saved, onOpen }: { saved: SavedGuide; onOpen: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const { guide, createdAt } = saved;
+  const date = new Date(createdAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const time = new Date(createdAt).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border/60 bg-[var(--surface)] transition-colors hover:border-primary/30">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-violet text-white shadow-glow">
+          <Sparkles className="h-3.5 w-3.5" strokeWidth={2.3} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13.5px] font-medium text-foreground">
+            {guide.title || "Study Guide"}
+          </span>
+          <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+            {date} · {time}
+          </span>
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border/40 px-4 py-4 animate-float-in">
+          <MiniSection
+            icon={<BookOpen className="h-3 w-3" />}
+            label="Key Concepts"
+            count={guide.keyConcepts.length}
+          >
+            {guide.keyConcepts.slice(0, 3).map((c, i) => (
+              <li key={i} className="text-[12.5px] leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">{c.heading}.</span> {c.explanation}
+              </li>
+            ))}
+          </MiniSection>
+
+          <MiniSection
+            icon={<Tag className="h-3 w-3" />}
+            label="Important Terms"
+            count={guide.importantTerms.length}
+          >
+            {guide.importantTerms.slice(0, 3).map((t, i) => (
+              <li key={i} className="text-[12.5px] leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">{t.term}</span> — {t.definition}
+              </li>
+            ))}
+          </MiniSection>
+
+          <MiniSection
+            icon={<HelpCircle className="h-3 w-3" />}
+            label="Practice Questions"
+            count={guide.practiceQuestions.length}
+          >
+            {guide.practiceQuestions.slice(0, 3).map((q, i) => (
+              <li key={i} className="text-[12.5px] leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">{i + 1}. {q.question}</span>
+              </li>
+            ))}
+          </MiniSection>
+
+          <button
+            onClick={onOpen}
+            className="hover-glow mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-[12.5px] font-medium text-primary"
+          >
+            Open full guide
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniSection({
+  icon,
+  label,
+  count,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4 last:mb-0">
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className="flex h-5 w-5 items-center justify-center rounded bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
+          {icon}
+        </span>
+        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-foreground">
+          {label}
+        </span>
+        <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          {count}
+        </span>
+      </div>
+      <ul className="ml-1 space-y-1.5 pl-5 [&>li]:list-disc [&>li]:marker:text-primary/60">{children}</ul>
     </div>
   );
 }
