@@ -202,6 +202,28 @@ export function NoteEditor({ noteId, onClose }: Props) {
               </span>
             </span>
           </button>
+
+          {/* Saved Study Guides */}
+          {savedGuides.length > 0 && (
+            <section className="mt-10">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </span>
+                  <h3 className="text-[14px] font-semibold tracking-tight">Study Guides</h3>
+                  <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                    {savedGuides.length}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2.5">
+                {savedGuides.map((sg) => (
+                  <SavedGuideRow key={sg.id} saved={sg} onOpen={() => setViewGuide(sg.guide)} />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       </div>
 
@@ -210,6 +232,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
           open={guideOpen}
           onClose={() => setGuideOpen(false)}
           note={{ title, body, subjectLabel }}
+          noteId={noteId}
+        />
+      )}
+
+      {viewGuide && (
+        <StudyGuideModal
+          open={!!viewGuide}
+          onClose={() => setViewGuide(null)}
+          note={{ title, body, subjectLabel }}
+          initialGuide={viewGuide}
         />
       )}
 
