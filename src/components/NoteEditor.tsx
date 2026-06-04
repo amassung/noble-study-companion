@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Trash2, Sparkles, Loader2 } from "lucide-react";
 import { deleteNote, formatRelative, getNote, updateNote, type StoredNote } from "@/lib/notes-store";
+import { StudyGuideModal } from "@/components/StudyGuideModal";
 
 type Props = {
   noteId: string;
@@ -24,6 +25,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   );
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("saved");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -176,15 +178,35 @@ export function NoteEditor({ noteId, onClose }: Props) {
             className="mt-4 min-h-[55vh] w-full resize-none bg-transparent text-[16px] leading-[1.7] text-foreground/90 placeholder:text-muted-foreground/50 focus:outline-none"
           />
 
-          {/* AI hint */}
-          <div className="mt-6 flex items-center gap-2 rounded-lg border border-primary/20 bg-gradient-violet-soft px-3 py-2 text-[12.5px] text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
-            <span>
-              <span className="text-foreground">Tip:</span> Add a few paragraphs and Nobi can generate a study guide for you.
+          {/* Generate Study Guide CTA */}
+          <button
+            onClick={() => setGuideOpen(true)}
+            disabled={body.trim().length < 20}
+            className="group mt-8 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+            aria-label="Generate study guide"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
+              <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
             </span>
-          </div>
+            <span className="flex-1">
+              <span className="block text-[14.5px] font-semibold text-white">Generate Study Guide</span>
+              <span className="mt-0.5 block text-[12.5px] text-white/80">
+                {body.trim().length < 20
+                  ? "Write a few sentences first…"
+                  : "Key concepts, terms, and practice questions — in seconds."}
+              </span>
+            </span>
+          </button>
         </div>
       </div>
+
+      {guideOpen && (
+        <StudyGuideModal
+          open={guideOpen}
+          onClose={() => setGuideOpen(false)}
+          note={{ title, body, subjectLabel }}
+        />
+      )}
 
       {/* Delete confirm */}
       {confirmDelete && (
