@@ -3,11 +3,14 @@ import { useServerFn } from "@tanstack/react-start";
 import { Sparkles, X, Copy, Download, Check, AlertCircle, BookOpen, Tag, HelpCircle } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { generateStudyGuide, type StudyGuide } from "@/lib/study-guide.functions";
+import { addGuide } from "@/lib/notes-store";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   note: { title: string; body: string; subjectLabel?: string };
+  noteId?: string;
+  initialGuide?: StudyGuide;
 };
 
 export function StudyGuideModal({ open, onClose, note }: Props) {
