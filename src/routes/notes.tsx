@@ -3,7 +3,13 @@ import { NotebookPen, Plus } from "lucide-react";
 import { useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
-import { createNote, deleteNote, formatRelative, useNotes } from "@/lib/notes-store";
+import { formatRelative } from "@/lib/notes/format";
+import {
+  useCreateNoteMutation,
+  useDeleteNoteMutation,
+  useNotes,
+  useNotesList,
+} from "@/lib/notes/use-notes";
 
 export const Route = createFileRoute("/notes")({
   head: () => ({ meta: [{ title: "Nobi — My Notes" }] }),
@@ -11,7 +17,10 @@ export const Route = createFileRoute("/notes")({
 });
 
 function NotesPage() {
+  const { isLoading } = useNotesList();
   const stored = useNotes();
+  const createNoteMutation = useCreateNoteMutation();
+  const deleteNoteMutation = useDeleteNoteMutation();
   const [openId, setOpenId] = useState<string | null>(null);
 
   const notes: Note[] = stored.map((n) => ({
@@ -25,10 +34,18 @@ function NotesPage() {
     testDate: n.testDate ?? null,
   }));
 
-  const handleNew = () => {
-    const note = createNote();
+  const handleNew = async () => {
+    const note = await createNoteMutation.mutateAsync();
     setOpenId(note.id);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading your notes…
+      </div>
+    );
+  }
 
   return (
     <div className="animate-float-in">
@@ -72,7 +89,7 @@ function NotesPage() {
               note={n}
               style={{ animationDelay: `${60 + i * 40}ms` }}
               onOpen={setOpenId}
-              onDelete={deleteNote}
+              onDelete={(id) => deleteNoteMutation.mutate(id)}
             />
           ))}
         </div>

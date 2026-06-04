@@ -3,7 +3,14 @@ import { Sparkles, Plus, Flame, BookOpen, Timer, ArrowRight, CalendarClock } fro
 import { useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
-import { createNote, daysUntil, deleteNote, formatRelative, formatTestCountdown, useNotes } from "@/lib/notes-store";
+import { daysUntil, formatRelative, formatTestCountdown } from "@/lib/notes/format";
+import {
+  useCreateNoteMutation,
+  useDeleteNoteMutation,
+  useNotes,
+  useNotesList,
+} from "@/lib/notes/use-notes";
+import { useAuth } from "@/lib/auth/auth-provider";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -18,8 +25,17 @@ export const Route = createFileRoute("/")({
 });
 
 function Home() {
+  const { user } = useAuth();
+  const { isLoading } = useNotesList();
   const stored = useNotes();
+  const createNoteMutation = useCreateNoteMutation();
+  const deleteNoteMutation = useDeleteNoteMutation();
   const [openId, setOpenId] = useState<string | null>(null);
+
+  const firstName =
+    user?.user_metadata?.full_name?.split(" ")?.[0] ??
+    user?.email?.split("@")[0] ??
+    "there";
 
   const notes: Note[] = stored.slice(0, 6).map((n) => ({
     id: n.id,
@@ -36,10 +52,18 @@ function Home() {
     .filter((n) => n.testDate != null && daysUntil(n.testDate!) >= 0)
     .sort((a, b) => (a.testDate ?? 0) - (b.testDate ?? 0));
 
-  const handleNew = () => {
-    const note = createNote();
+  const handleNew = async () => {
+    const note = await createNoteMutation.mutateAsync();
     setOpenId(note.id);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading your notes…
+      </div>
+    );
+  }
 
   return (
     <div className="relative">
@@ -56,7 +80,7 @@ function Home() {
           Thursday, June 4
         </p>
         <h1 className="mt-3 text-[34px] font-semibold leading-[1.05] tracking-tight text-foreground sm:text-[42px]">
-          Good evening, Duke <span className="inline-block">👋</span>
+          Good evening, {firstName} <span className="inline-block">👋</span>
         </h1>
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
           {upcoming.length > 0 ? (
@@ -185,7 +209,7 @@ function Home() {
                 note={n}
                 style={{ animationDelay: `${120 + i * 70}ms` }}
                 onOpen={setOpenId}
-                onDelete={deleteNote}
+                onDelete={(id) => deleteNoteMutation.mutate(id)}
               />
             ))}
           </div>

@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Sparkles, X, Copy, Download, Check, AlertCircle, BookOpen, Tag, HelpCircle } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { generateStudyGuide, type StudyGuide } from "@/lib/study-guide.functions";
-import { addGuide } from "@/lib/notes-store";
+import { useAddGuideMutation } from "@/lib/notes/use-notes";
 
 type Props = {
   open: boolean;
@@ -15,6 +15,7 @@ type Props = {
 
 export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: Props) {
   const callGenerate = useServerFn(generateStudyGuide);
+  const addGuideMutation = useAddGuideMutation();
   const [guide, setGuide] = useState<StudyGuide | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
       .then((g) => {
         if (cancelled) return;
         setGuide(g);
-        if (noteId) addGuide(noteId, g);
+        if (noteId) addGuideMutation.mutate({ noteId, guide: g });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -65,6 +66,7 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- addGuideMutation is stable enough; avoid re-fetching guide
   }, [open, note.title, note.body, note.subjectLabel, callGenerate, noteId, initialGuide]);
 
   if (!open) return null;

@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Trash2, Sparkles, Loader2, ChevronDown, BookOpen, Tag, HelpCircle, CalendarClock, X as XIcon } from "lucide-react";
-import { deleteNote, formatRelative, formatTestCountdown, getNote, setTestDate, updateNote, useNotes, type StoredNote, type SavedGuide } from "@/lib/notes-store";
+import { formatRelative, formatTestCountdown } from "@/lib/notes/format";
+import {
+  useDeleteNoteMutation,
+  useNotes,
+  useNotesList,
+  useSetTestDateMutation,
+  useUpdateNoteMutation,
+  type SavedGuide,
+  type StoredNote,
+} from "@/lib/notes/use-notes";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import type { StudyGuide } from "@/lib/study-guide.functions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -20,35 +29,55 @@ const SUBJECTS: { value: StoredNote["subject"]; label: string; dot: string }[] =
 ];
 
 export function NoteEditor({ noteId, onClose }: Props) {
-  const initial = getNote(noteId);
-  const [title, setTitle] = useState(initial?.title ?? "");
-  const [body, setBody] = useState(initial?.body ?? "");
-  const [subject, setSubject] = useState<StoredNote["subject"]>(initial?.subject ?? "violet");
-  const [subjectLabel, setSubjectLabel] = useState<string>(
-    initial?.subjectLabel ?? SUBJECTS.find((s) => s.value === (initial?.subject ?? "violet"))!.label,
-  );
+  const { isLoading } = useNotesList();
+  const allNotes = useNotes();
+  const liveNote = allNotes.find((n) => n.id === noteId);
+  const updateMutation = useUpdateNoteMutation();
+  const deleteMutation = useDeleteNoteMutation();
+  const setTestDateMutation = useSetTestDateMutation();
+
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [subject, setSubject] = useState<StoredNote["subject"]>("violet");
+  const [subjectLabel, setSubjectLabel] = useState("Philosophy");
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("saved");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
-  const allNotes = useNotes();
-  const liveNote = allNotes.find((n) => n.id === noteId);
+  const [hydrated, setHydrated] = useState(false);
+
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Autofocus title on open for blank notes
   useEffect(() => {
-    if (!initial?.title) titleRef.current?.focus();
-    // Lock body scroll while open
+    setHydrated(false);
+  }, [noteId]);
+
+  useEffect(() => {
+    if (!liveNote || hydrated) return;
+    setTitle(liveNote.title);
+    setBody(liveNote.body);
+    setSubject(liveNote.subject);
+    setSubjectLabel(
+      liveNote.subjectLabel ?? SUBJECTS.find((s) => s.value === liveNote.subject)!.label,
+    );
+    setHydrated(true);
+  }, [liveNote, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || !liveNote?.title) return;
+    titleRef.current?.focus();
+  }, [hydrated, liveNote?.title]);
+
+  useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [initial?.title]);
+  }, []);
 
-  // ESC to close
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -57,42 +86,51 @@ export function NoteEditor({ noteId, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Debounced auto-save
   useEffect(() => {
-    if (!initial) return;
+    if (!hydrated) return;
     setStatus("saving");
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      updateNote(noteId, { title, body, subject, subjectLabel });
-      setStatus("saved");
+      updateMutation.mutate(
+        { id: noteId, patch: { title, body, subject, subjectLabel } },
+        { onSettled: () => setStatus("saved") },
+      );
     }, 400);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, body, subject, subjectLabel]);
+  }, [title, body, subject, subjectLabel, noteId, hydrated, updateMutation]);
 
-  // Flush on unmount
   useEffect(() => {
     return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-        updateNote(noteId, { title, body, subject, subjectLabel });
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (hydrated) {
+        updateMutation.mutate({ id: noteId, patch: { title, body, subject, subjectLabel } });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!initial) return null;
+  if (isLoading || !hydrated) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!liveNote) {
+    return null;
+  }
 
   const handleDelete = () => {
-    deleteNote(noteId);
-    onClose();
+    deleteMutation.mutate(noteId, { onSuccess: onClose });
   };
+
+  const lastSavedAt = liveNote.updatedAt;
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-float-in">
-      {/* ambient glow */}
       <div
         aria-hidden
         className="pointer-events-none absolute -top-32 left-1/2 -z-10 h-[420px] w-[820px] -translate-x-1/2 rounded-full opacity-25 blur-3xl"
@@ -101,7 +139,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
         }}
       />
 
-      {/* Header */}
       <header
         className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/40 px-4 py-3 backdrop-blur-xl sm:px-6"
         style={{ backgroundColor: "color-mix(in oklab, var(--background) 80%, transparent)" }}
@@ -123,7 +160,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
           ) : (
             <>
               <Check className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Saved · {formatRelative(initial.updatedAt)}</span>
+              <span>Saved · {formatRelative(lastSavedAt)}</span>
             </>
           )}
         </div>
@@ -137,10 +174,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
         </button>
       </header>
 
-      {/* Editor */}
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-12">
-          {/* Subject picker */}
           <div className="flex flex-wrap items-center gap-2">
             {SUBJECTS.map((s) => {
               const active = s.value === subject;
@@ -165,20 +200,19 @@ export function NoteEditor({ noteId, onClose }: Props) {
             })}
           </div>
 
-          {/* Test date row */}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Popover>
               <PopoverTrigger asChild>
                 <button
                   className={cn(
                     "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
-                    liveNote?.testDate
+                    liveNote.testDate
                       ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
                       : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
                   )}
                 >
                   <CalendarClock className="h-3.5 w-3.5" />
-                  {liveNote?.testDate
+                  {liveNote.testDate
                     ? formatTestCountdown(liveNote.testDate, subjectLabel)
                     : "Set test date"}
                 </button>
@@ -186,14 +220,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
               <PopoverContent className="w-auto p-0" align="start">
                 <Calendar
                   mode="single"
-                  selected={liveNote?.testDate ? new Date(liveNote.testDate) : undefined}
-                  onSelect={(d) => d && setTestDate(noteId, d)}
+                  selected={liveNote.testDate ? new Date(liveNote.testDate) : undefined}
+                  onSelect={(d) =>
+                    setTestDateMutation.mutate({ id: noteId, date: d ?? null })
+                  }
                   initialFocus
                   className={cn("p-3 pointer-events-auto")}
                 />
               </PopoverContent>
             </Popover>
-            {liveNote?.testDate ? (
+            {liveNote.testDate ? (
               <>
                 <span className="text-[11.5px] text-muted-foreground">
                   {new Date(liveNote.testDate).toLocaleDateString(undefined, {
@@ -204,7 +240,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   })}
                 </span>
                 <button
-                  onClick={() => setTestDate(noteId, null)}
+                  onClick={() => setTestDateMutation.mutate({ id: noteId, date: null })}
                   aria-label="Clear test date"
                   className="flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
                 >
@@ -213,8 +249,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
               </>
             ) : null}
           </div>
-
-
 
           <textarea
             ref={titleRef}
@@ -237,7 +271,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
             className="mt-4 min-h-[55vh] w-full resize-none bg-transparent text-[16px] leading-[1.7] text-foreground/90 placeholder:text-muted-foreground/50 focus:outline-none"
           />
 
-          {/* Generate Study Guide CTA */}
           <button
             onClick={() => setGuideOpen(true)}
             disabled={body.trim().length < 20}
@@ -257,7 +290,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
             </span>
           </button>
 
-          {/* Saved Study Guides */}
           {savedGuides.length > 0 && (
             <section className="mt-10">
               <div className="mb-3 flex items-center justify-between">
@@ -299,7 +331,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
         />
       )}
 
-      {/* Delete confirm */}
       {confirmDelete && (
         <div
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
@@ -311,7 +342,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
           >
             <h3 className="text-[16px] font-semibold tracking-tight">Delete this note?</h3>
             <p className="mt-1 text-[13px] text-muted-foreground">
-              This can't be undone. Your note will be permanently removed.
+              This can&apos;t be undone. Your note will be permanently removed.
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
@@ -402,7 +433,9 @@ function SavedGuideRow({ saved, onOpen }: { saved: SavedGuide; onOpen: () => voi
           >
             {guide.practiceQuestions.slice(0, 3).map((q, i) => (
               <li key={i} className="text-[12.5px] leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">{i + 1}. {q.question}</span>
+                <span className="font-medium text-foreground">
+                  {i + 1}. {q.question}
+                </span>
               </li>
             ))}
           </MiniSection>

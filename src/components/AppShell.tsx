@@ -11,6 +11,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import { type ReactNode } from "react";
+import { LogOut } from "lucide-react";
+import { useAuth } from "@/lib/auth/auth-provider";
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
 
@@ -32,6 +34,9 @@ const mobileNav: NavItem[] = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user, signOut } = useAuth();
+  const email = user?.email ?? "";
+  const displayEmail = email.length > 28 ? `${email.slice(0, 25)}…` : email;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -80,15 +85,19 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
 
-        <div className="mx-3 mb-5 rounded-xl border border-primary/20 bg-gradient-violet-soft p-4">
-          <div className="flex items-center gap-2 text-[12px] font-medium text-primary">
-            <Sparkles className="h-3.5 w-3.5" /> Nobi Pro
-          </div>
-          <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
-            Unlimited AI study guides & flashcards.
-          </p>
-          <button className="mt-3 w-full rounded-md bg-gradient-violet px-3 py-1.5 text-[12px] font-medium text-white shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.98]">
-            Upgrade
+        <div className="mx-3 mb-3 space-y-2">
+          {displayEmail ? (
+            <p className="truncate px-2 text-[11px] text-muted-foreground" title={email}>
+              {displayEmail}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="hover-glow flex w-full items-center justify-center gap-2 rounded-lg border border-border/60 bg-[var(--surface)] px-3 py-2 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign out
           </button>
         </div>
       </aside>
