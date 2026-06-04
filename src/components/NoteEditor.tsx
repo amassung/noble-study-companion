@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Trash2, Sparkles, Loader2 } from "lucide-react";
 import { deleteNote, formatRelative, getNote, updateNote, type StoredNote } from "@/lib/notes-store";
+import { StudyGuideModal } from "@/components/StudyGuideModal";
 
 type Props = {
   noteId: string;
