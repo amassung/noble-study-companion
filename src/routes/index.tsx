@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Sparkles, Plus, Flame, BookOpen, Timer, ArrowRight } from "lucide-react";
+import { useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
+import { NoteEditor } from "@/components/NoteEditor";
+import { createNote, deleteNote, formatRelative, useNotes } from "@/lib/notes-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -14,53 +17,35 @@ export const Route = createFileRoute("/")({
   component: Home,
 });
 
-const notes: Note[] = [
-  {
-    id: "1",
-    subject: "violet",
-    subjectLabel: "Philosophy",
-    title: "Kant's Categorical Imperative",
-    preview:
-      "Act only according to that maxim by which you can at the same time will that it should become a universal law…",
-    date: "Today · 4:12 PM",
-    guideReady: true,
-  },
-  {
-    id: "2",
-    subject: "blue",
-    subjectLabel: "Biology",
-    title: "Cellular Respiration — Krebs Cycle",
-    preview:
-      "Acetyl-CoA enters the mitochondrial matrix, combines with oxaloacetate to form citrate, then a series of redox reactions…",
-    date: "Yesterday · 9:48 PM",
-    guideReady: true,
-  },
-  {
-    id: "3",
-    subject: "green",
-    subjectLabel: "Economics",
-    title: "Elasticity of Demand",
-    preview:
-      "Measures how quantity demanded responds to a change in price. Necessities tend toward inelastic; luxuries elastic…",
-    date: "Mon · 2:03 PM",
-    guideReady: false,
-  },
-];
-
 function Home() {
+  const stored = useNotes();
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const notes: Note[] = stored.slice(0, 6).map((n) => ({
+    id: n.id,
+    subject: n.subject,
+    subjectLabel: n.subjectLabel,
+    title: n.title,
+    preview: n.body,
+    date: formatRelative(n.updatedAt),
+    guideReady: n.body.length > 240,
+  }));
+
+  const handleNew = () => {
+    const note = createNote();
+    setOpenId(note.id);
+  };
+
   return (
     <div className="relative">
-      {/* ambient glow */}
       <div
         aria-hidden
         className="pointer-events-none absolute -top-32 left-1/2 -z-10 h-[420px] w-[820px] -translate-x-1/2 rounded-full opacity-40 blur-3xl"
         style={{
-          background:
-            "radial-gradient(ellipse at center, oklch(0.55 0.24 295 / 0.5), transparent 60%)",
+          background: "radial-gradient(ellipse at center, oklch(0.55 0.24 295 / 0.5), transparent 60%)",
         }}
       />
 
-      {/* Greeting */}
       <header className="animate-float-in">
         <p className="text-[12.5px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
           Thursday, June 4
@@ -73,7 +58,6 @@ function Home() {
         </p>
       </header>
 
-      {/* CTA */}
       <button
         className="group relative mt-8 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-5 text-left shadow-glow-lg transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] sm:p-6 animate-float-in"
         style={{ animationDelay: "60ms" }}
@@ -82,8 +66,7 @@ function Home() {
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-60"
           style={{
-            background:
-              "radial-gradient(120% 100% at 0% 0%, oklch(1 0 0 / 0.18), transparent 50%)",
+            background: "radial-gradient(120% 100% at 0% 0%, oklch(1 0 0 / 0.18), transparent 50%)",
           }}
         />
         <span className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15 backdrop-blur ring-1 ring-white/25">
@@ -98,31 +81,50 @@ function Home() {
         <ArrowRight className="relative h-5 w-5 text-white/90 transition-transform group-hover:translate-x-0.5" />
       </button>
 
-      {/* Recent notes */}
       <section className="mt-10">
         <div className="mb-4 flex items-end justify-between">
           <div>
             <h2 className="text-[18px] font-semibold tracking-tight">Recent notes</h2>
-            <p className="text-[12.5px] text-muted-foreground">Pick up where you left off.</p>
+            <p className="text-[12.5px] text-muted-foreground">
+              {stored.length === 0 ? "No notes yet — tap + to start." : "Pick up where you left off."}
+            </p>
           </div>
-          <button className="rounded-md px-2.5 py-1 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground">
-            View all →
-          </button>
+          {stored.length > 0 && (
+            <span className="text-[11.5px] text-muted-foreground lg:hidden">Swipe ← to delete</span>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {notes.map((n, i) => (
-            <NoteCard key={n.id} note={n} style={{ animationDelay: `${120 + i * 70}ms` }} />
-          ))}
-        </div>
+        {notes.length === 0 ? (
+          <button
+            onClick={handleNew}
+            className="hover-glow flex w-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-[var(--surface)]/40 py-14 text-center"
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-violet text-white shadow-glow">
+              <Plus className="h-5 w-5" />
+            </span>
+            <span className="mt-3 text-[14px] font-medium">Create your first note</span>
+            <span className="mt-1 text-[12.5px] text-muted-foreground">Auto-saved as you type.</span>
+          </button>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {notes.map((n, i) => (
+              <NoteCard
+                key={n.id}
+                note={n}
+                style={{ animationDelay: `${120 + i * 70}ms` }}
+                onOpen={setOpenId}
+                onDelete={deleteNote}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
-      {/* Stats */}
       <section className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard
           icon={<BookOpen className="h-4 w-4" />}
           label="Notes this week"
-          value="12"
+          value={String(stored.length)}
           delta="+4 vs last week"
         />
         <StatCard
@@ -140,13 +142,15 @@ function Home() {
         />
       </section>
 
-      {/* FAB */}
       <button
         aria-label="New note"
+        onClick={handleNew}
         className="animate-pulse-glow fixed bottom-24 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-violet text-white transition-transform hover:scale-105 active:scale-95 lg:bottom-8 lg:right-8 lg:h-16 lg:w-16"
       >
         <Plus className="h-6 w-6" strokeWidth={2.4} />
       </button>
+
+      {openId && <NoteEditor noteId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
 }
