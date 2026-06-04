@@ -31,6 +31,12 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
 
   useEffect(() => {
     if (!open) return;
+    if (initialGuide) {
+      setGuide(initialGuide);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setGuide(null);
     setError(null);
@@ -46,6 +52,7 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
       .then((g) => {
         if (cancelled) return;
         setGuide(g);
+        if (noteId) addGuide(noteId, g);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -58,7 +65,7 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
     return () => {
       cancelled = true;
     };
-  }, [open, note.title, note.body, note.subjectLabel, callGenerate]);
+  }, [open, note.title, note.body, note.subjectLabel, callGenerate, noteId, initialGuide]);
 
   if (!open) return null;
 
