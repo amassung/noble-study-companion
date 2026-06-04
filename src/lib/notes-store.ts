@@ -129,7 +129,7 @@ export function createNote(): StoredNote {
   return note;
 }
 
-export function updateNote(id: string, patch: Partial<Pick<StoredNote, "title" | "body" | "subject" | "subjectLabel">>) {
+export function updateNote(id: string, patch: Partial<Pick<StoredNote, "title" | "body" | "subject" | "subjectLabel" | "testDate">>) {
   let changed = false;
   cache = cache.map((n) => {
     if (n.id !== id) return n;
