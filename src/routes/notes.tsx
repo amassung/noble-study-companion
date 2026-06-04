@@ -22,6 +22,7 @@ function NotesPage() {
     preview: n.body,
     date: formatRelative(n.updatedAt),
     guideReady: n.body.length > 240,
+    testDate: n.testDate ?? null,
   }));
 
   const handleNew = () => {
