@@ -162,6 +162,27 @@ export function NoteCard({ note, style, onOpen, onDelete }: Props) {
           {note.preview || <span className="opacity-60">No content yet — tap to start writing.</span>}
         </p>
 
+        {note.testDate != null && (() => {
+          const d = daysUntil(note.testDate);
+          const urgent = d <= 2 && d >= 0;
+          const past = d < 0;
+          return (
+            <div
+              className={[
+                "mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium ring-1 ring-inset",
+                past
+                  ? "bg-white/[0.04] text-muted-foreground ring-white/[0.06]"
+                  : urgent
+                    ? "bg-primary/15 text-primary ring-primary/30 shadow-glow"
+                    : "bg-primary/10 text-primary ring-primary/25",
+              ].join(" ")}
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+              {formatTestCountdown(note.testDate, note.subjectLabel ?? s.label)}
+            </div>
+          );
+        })()}
+
         <div className="mt-4 flex items-center justify-between">
           <span className="text-[11.5px] text-muted-foreground">{note.date}</span>
           <span className="text-[11.5px] font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
