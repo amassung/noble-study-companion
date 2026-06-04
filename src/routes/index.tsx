@@ -59,7 +59,17 @@ function Home() {
           Good evening, Duke <span className="inline-block">👋</span>
         </h1>
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-          You have <span className="font-medium text-foreground">2 tests</span> this week. Ready to study?
+          {upcoming.length > 0 ? (
+            <>
+              You have{" "}
+              <span className="font-medium text-foreground">
+                {upcoming.length} {upcoming.length === 1 ? "test" : "tests"}
+              </span>{" "}
+              coming up. Ready to study?
+            </>
+          ) : (
+            <>No tests scheduled. Set a test date to start a countdown.</>
+          )}
         </p>
       </header>
 
