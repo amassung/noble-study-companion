@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Sparkles, X, Copy, Download, Check, AlertCircle, BookOpen, Tag, HelpCircle } from "lucide-react";
+import { Sparkles, X, Copy, Download, Check, AlertCircle, BookOpen, Tag, HelpCircle, Loader2 } from "lucide-react";
 import { jsPDF } from "jspdf";
+import { toast } from "sonner";
 import { generateStudyGuide, type StudyGuide } from "@/lib/study-guide.functions";
 import { useAddGuideMutation } from "@/lib/notes/use-notes";
 
@@ -18,6 +19,7 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
   const addGuideMutation = useAddGuideMutation();
   const [guide, setGuide] = useState<StudyGuide | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -43,25 +45,40 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
     setError(null);
     setLoading(true);
 
-    callGenerate({
-      data: {
-        title: note.title,
-        body: note.body,
-        subjectLabel: note.subjectLabel,
-      },
-    })
-      .then((g) => {
+    void (async () => {
+      try {
+        const g = await callGenerate({
+          data: {
+            title: note.title,
+            body: note.body,
+            subjectLabel: note.subjectLabel,
+          },
+        });
         if (cancelled) return;
         setGuide(g);
-        if (noteId) addGuideMutation.mutate({ noteId, guide: g });
-      })
-      .catch((e: unknown) => {
+
+        if (noteId) {
+          setSaving(true);
+          try {
+            await addGuideMutation.mutateAsync({ noteId, guide: g });
+            if (!cancelled) toast.success("Study guide saved");
+          } catch (saveErr) {
+            if (!cancelled) {
+              toast.error(
+                saveErr instanceof Error ? saveErr.message : "Couldn't save study guide",
+              );
+            }
+          } finally {
+            if (!cancelled) setSaving(false);
+          }
+        }
+      } catch (e: unknown) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Something went wrong.");
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -150,9 +167,15 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
 
         {/* Footer actions */}
         <footer className="flex items-center justify-end gap-2 border-t border-border/40 bg-[var(--surface)]/60 px-5 py-3.5 sm:px-6">
+          {saving && (
+            <span className="mr-auto flex items-center gap-1.5 text-[12px] text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              Saving guide…
+            </span>
+          )}
           <button
             onClick={handleCopy}
-            disabled={!guide}
+            disabled={!guide || saving}
             className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-3.5 py-2 text-[13px] font-medium text-foreground transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
           >
             {copied ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
@@ -160,7 +183,7 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
           </button>
           <button
             onClick={handleExport}
-            disabled={!guide}
+            disabled={!guide || saving}
             className="flex items-center gap-1.5 rounded-lg bg-gradient-violet px-3.5 py-2 text-[13px] font-semibold text-white shadow-glow transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-4 w-4" />

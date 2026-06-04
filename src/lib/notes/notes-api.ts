@@ -180,6 +180,26 @@ export async function addGuide(noteId: string, guide: StudyGuide): Promise<Saved
   };
 }
 
+export async function deleteGuide(noteId: string, guideId: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  const userId = await requireUserId();
+
+  const { error } = await supabase
+    .from("study_guides")
+    .delete()
+    .eq("id", guideId)
+    .eq("note_id", noteId)
+    .eq("user_id", userId);
+
+  if (error) throw error;
+
+  await supabase
+    .from("notes")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", noteId)
+    .eq("user_id", userId);
+}
+
 export async function setTestDate(id: string, date: Date | null): Promise<void> {
   await updateNote(id, { testDate: date ? date.getTime() : null });
 }

@@ -4,6 +4,7 @@ import type { StudyGuide } from "@/lib/study-guide.functions";
 import {
   addGuide,
   createNote,
+  deleteGuide,
   deleteNote,
   fetchNotes,
   setTestDate,
@@ -76,6 +77,40 @@ export function useAddGuideMutation() {
     mutationFn: ({ noteId, guide }: { noteId: string; guide: StudyGuide }) =>
       addGuide(noteId, guide),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: notesQueryKey(user?.id) });
+    },
+  });
+}
+
+export function useDeleteGuideMutation() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ noteId, guideId }: { noteId: string; guideId: string }) =>
+      deleteGuide(noteId, guideId),
+    onMutate: async ({ noteId, guideId }) => {
+      const key = notesQueryKey(user?.id);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<StoredNote[]>(key);
+      if (previous) {
+        queryClient.setQueryData<StoredNote[]>(
+          key,
+          previous.map((n) =>
+            n.id === noteId
+              ? { ...n, guides: (n.guides ?? []).filter((g) => g.id !== guideId) }
+              : n,
+          ),
+        );
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(notesQueryKey(user?.id), context.previous);
+      }
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: notesQueryKey(user?.id) });
     },
   });

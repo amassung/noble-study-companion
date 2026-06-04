@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Trash2, Sparkles, Loader2, ChevronDown, BookOpen, Tag, HelpCircle, CalendarClock, X as XIcon } from "lucide-react";
+import { ArrowLeft, Check, Trash2, Sparkles, Loader2, CalendarClock, X as XIcon } from "lucide-react";
+import { toast } from "sonner";
 import { formatRelative, formatTestCountdown } from "@/lib/notes/format";
 import {
   useDeleteNoteMutation,
   useNotes,
   useNotesList,
+  useDeleteGuideMutation,
   useSetTestDateMutation,
   useUpdateNoteMutation,
   type SavedGuide,
@@ -290,26 +292,37 @@ export function NoteEditor({ noteId, onClose }: Props) {
             </span>
           </button>
 
-          {savedGuides.length > 0 && (
-            <section className="mt-10">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
-                    <Sparkles className="h-3.5 w-3.5" />
-                  </span>
-                  <h3 className="text-[14px] font-semibold tracking-tight">Study Guides</h3>
+          <section className="mt-10">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
+                  <Sparkles className="h-3.5 w-3.5" />
+                </span>
+                <h3 className="text-[14px] font-semibold tracking-tight">Saved Study Guides</h3>
+                {savedGuides.length > 0 && (
                   <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
                     {savedGuides.length}
                   </span>
-                </div>
+                )}
               </div>
+            </div>
+            {savedGuides.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface)]/40 px-4 py-6 text-center text-[13px] text-muted-foreground">
+                No saved guides yet. Generate one above to save it here.
+              </p>
+            ) : (
               <div className="space-y-2.5">
                 {savedGuides.map((sg) => (
-                  <SavedGuideRow key={sg.id} saved={sg} onOpen={() => setViewGuide(sg.guide)} />
+                  <SavedGuideRow
+                    key={sg.id}
+                    noteId={noteId}
+                    saved={sg}
+                    onOpen={() => setViewGuide(sg.guide)}
+                  />
                 ))}
               </div>
-            </section>
-          )}
+            )}
+          </section>
         </div>
       </div>
 
@@ -365,9 +378,18 @@ export function NoteEditor({ noteId, onClose }: Props) {
   );
 }
 
-function SavedGuideRow({ saved, onOpen }: { saved: SavedGuide; onOpen: () => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const { guide, createdAt } = saved;
+function SavedGuideRow({
+  noteId,
+  saved,
+  onOpen,
+}: {
+  noteId: string;
+  saved: SavedGuide;
+  onOpen: () => void;
+}) {
+  const deleteGuideMutation = useDeleteGuideMutation();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const { guide, createdAt, id: guideId } = saved;
   const date = new Date(createdAt).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -378,105 +400,84 @@ function SavedGuideRow({ saved, onOpen }: { saved: SavedGuide; onOpen: () => voi
     minute: "2-digit",
   });
 
+  const handleDelete = () => {
+    deleteGuideMutation.mutate(
+      { noteId, guideId },
+      {
+        onSuccess: () => {
+          toast.success("Study guide deleted");
+          setConfirmDelete(false);
+        },
+        onError: (err) => {
+          toast.error(err instanceof Error ? err.message : "Couldn't delete study guide");
+        },
+      },
+    );
+  };
+
   return (
-    <div className="overflow-hidden rounded-xl border border-border/60 bg-[var(--surface)] transition-colors hover:border-primary/30">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-violet text-white shadow-glow">
-          <Sparkles className="h-3.5 w-3.5" strokeWidth={2.3} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13.5px] font-medium text-foreground">
-            {guide.title || "Study Guide"}
+    <>
+      <div className="group flex items-center gap-2 overflow-hidden rounded-xl border border-border/60 bg-[var(--surface)] transition-colors hover:border-primary/30">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="hover-glow flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-violet text-white shadow-glow">
+            <Sparkles className="h-3.5 w-3.5" strokeWidth={2.3} />
           </span>
-          <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
-            {date} · {time}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13.5px] font-medium text-foreground">
+              {guide.title || "Study Guide"}
+            </span>
+            <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+              Created {date} · {time}
+            </span>
           </span>
-        </span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}
-        />
-      </button>
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirmDelete(true)}
+          aria-label="Delete study guide"
+          className="hover-glow mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-[var(--surface)] text-muted-foreground opacity-80 transition-colors hover:text-destructive group-hover:opacity-100"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
 
-      {expanded && (
-        <div className="border-t border-border/40 px-4 py-4 animate-float-in">
-          <MiniSection
-            icon={<BookOpen className="h-3 w-3" />}
-            label="Key Concepts"
-            count={guide.keyConcepts.length}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+          onClick={() => setConfirmDelete(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 shadow-glow-lg sm:rounded-2xl animate-float-in"
           >
-            {guide.keyConcepts.slice(0, 3).map((c, i) => (
-              <li key={i} className="text-[12.5px] leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">{c.heading}.</span> {c.explanation}
-              </li>
-            ))}
-          </MiniSection>
-
-          <MiniSection
-            icon={<Tag className="h-3 w-3" />}
-            label="Important Terms"
-            count={guide.importantTerms.length}
-          >
-            {guide.importantTerms.slice(0, 3).map((t, i) => (
-              <li key={i} className="text-[12.5px] leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">{t.term}</span> — {t.definition}
-              </li>
-            ))}
-          </MiniSection>
-
-          <MiniSection
-            icon={<HelpCircle className="h-3 w-3" />}
-            label="Practice Questions"
-            count={guide.practiceQuestions.length}
-          >
-            {guide.practiceQuestions.slice(0, 3).map((q, i) => (
-              <li key={i} className="text-[12.5px] leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {i + 1}. {q.question}
-                </span>
-              </li>
-            ))}
-          </MiniSection>
-
-          <button
-            onClick={onOpen}
-            className="hover-glow mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-[12.5px] font-medium text-primary"
-          >
-            Open full guide
-          </button>
+            <h3 className="text-[16px] font-semibold tracking-tight">Delete this study guide?</h3>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              &ldquo;{guide.title || "Study Guide"}&rdquo; will be permanently removed.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="rounded-md border border-border/60 bg-[var(--surface)] px-3.5 py-2 text-[13px] font-medium hover:bg-white/[0.04]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleteGuideMutation.isPending}
+                className="rounded-md bg-destructive px-3.5 py-2 text-[13px] font-medium text-destructive-foreground hover:opacity-90 disabled:opacity-60"
+              >
+                {deleteGuideMutation.isPending ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function MiniSection({
-  icon,
-  label,
-  count,
-  children,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="mb-4 last:mb-0">
-      <div className="mb-2 flex items-center gap-1.5">
-        <span className="flex h-5 w-5 items-center justify-center rounded bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
-          {icon}
-        </span>
-        <span className="text-[11.5px] font-semibold uppercase tracking-wide text-foreground">
-          {label}
-        </span>
-        <span className="rounded-full bg-white/[0.05] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-          {count}
-        </span>
-      </div>
-      <ul className="ml-1 space-y-1.5 pl-5 [&>li]:list-disc [&>li]:marker:text-primary/60">{children}</ul>
-    </div>
+    </>
   );
 }
