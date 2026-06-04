@@ -29,7 +29,12 @@ function Home() {
     preview: n.body,
     date: formatRelative(n.updatedAt),
     guideReady: n.body.length > 240,
+    testDate: n.testDate ?? null,
   }));
+
+  const upcoming = stored
+    .filter((n) => n.testDate != null && daysUntil(n.testDate!) >= 0)
+    .sort((a, b) => (a.testDate ?? 0) - (b.testDate ?? 0));
 
   const handleNew = () => {
     const note = createNote();
