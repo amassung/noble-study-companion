@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Trash2, Sparkles, Loader2, ChevronDown, BookOpen, Tag, HelpCircle } from "lucide-react";
-import { deleteNote, formatRelative, getNote, updateNote, useNotes, type StoredNote, type SavedGuide } from "@/lib/notes-store";
+import { ArrowLeft, Check, Trash2, Sparkles, Loader2, ChevronDown, BookOpen, Tag, HelpCircle, CalendarClock, X as XIcon } from "lucide-react";
+import { deleteNote, formatRelative, formatTestCountdown, getNote, setTestDate, updateNote, useNotes, type StoredNote, type SavedGuide } from "@/lib/notes-store";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import type { StudyGuide } from "@/lib/study-guide.functions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 
 type Props = {
   noteId: string;
