@@ -13,7 +13,7 @@ type Props = {
   initialGuide?: StudyGuide;
 };
 
-export function StudyGuideModal({ open, onClose, note }: Props) {
+export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: Props) {
   const callGenerate = useServerFn(generateStudyGuide);
   const [guide, setGuide] = useState<StudyGuide | null>(null);
   const [loading, setLoading] = useState(false);
