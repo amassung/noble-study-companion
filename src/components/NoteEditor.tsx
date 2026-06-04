@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Trash2, Sparkles, Loader2, ChevronDown, BookOpen, Tag, HelpCircle } from "lucide-react";
-import { deleteNote, formatRelative, getNote, updateNote, useNotes, type StoredNote, type SavedGuide } from "@/lib/notes-store";
+import { ArrowLeft, Check, Trash2, Sparkles, Loader2, ChevronDown, BookOpen, Tag, HelpCircle, CalendarClock, X as XIcon } from "lucide-react";
+import { deleteNote, formatRelative, formatTestCountdown, getNote, setTestDate, updateNote, useNotes, type StoredNote, type SavedGuide } from "@/lib/notes-store";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import type { StudyGuide } from "@/lib/study-guide.functions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 
 type Props = {
   noteId: string;
@@ -161,6 +164,57 @@ export function NoteEditor({ noteId, onClose }: Props) {
               );
             })}
           </div>
+
+          {/* Test date row */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                    liveNote?.testDate
+                      ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
+                      : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  {liveNote?.testDate
+                    ? formatTestCountdown(liveNote.testDate, subjectLabel)
+                    : "Set test date"}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={liveNote?.testDate ? new Date(liveNote.testDate) : undefined}
+                  onSelect={(d) => d && setTestDate(noteId, d)}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
+            {liveNote?.testDate ? (
+              <>
+                <span className="text-[11.5px] text-muted-foreground">
+                  {new Date(liveNote.testDate).toLocaleDateString(undefined, {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </span>
+                <button
+                  onClick={() => setTestDate(noteId, null)}
+                  aria-label="Clear test date"
+                  className="flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              </>
+            ) : null}
+          </div>
+
+
 
           <textarea
             ref={titleRef}

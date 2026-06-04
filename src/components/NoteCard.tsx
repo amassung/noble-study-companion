@@ -1,5 +1,6 @@
-import { Sparkles, Trash2 } from "lucide-react";
+import { Sparkles, Trash2, CalendarClock } from "lucide-react";
 import { useRef, useState } from "react";
+import { daysUntil, formatTestCountdown } from "@/lib/notes-store";
 
 export type Subject = "violet" | "blue" | "green" | "amber";
 
@@ -42,6 +43,7 @@ export type Note = {
   preview: string;
   date: string;
   guideReady?: boolean;
+  testDate?: number | null;
 };
 
 type Props = {
@@ -159,6 +161,27 @@ export function NoteCard({ note, style, onOpen, onDelete }: Props) {
         <p className="mt-1.5 line-clamp-2 min-h-[2.6em] text-[13px] leading-relaxed text-muted-foreground">
           {note.preview || <span className="opacity-60">No content yet — tap to start writing.</span>}
         </p>
+
+        {note.testDate != null && (() => {
+          const d = daysUntil(note.testDate);
+          const urgent = d <= 2 && d >= 0;
+          const past = d < 0;
+          return (
+            <div
+              className={[
+                "mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium ring-1 ring-inset",
+                past
+                  ? "bg-white/[0.04] text-muted-foreground ring-white/[0.06]"
+                  : urgent
+                    ? "bg-primary/15 text-primary ring-primary/30 shadow-glow"
+                    : "bg-primary/10 text-primary ring-primary/25",
+              ].join(" ")}
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+              {formatTestCountdown(note.testDate, note.subjectLabel ?? s.label)}
+            </div>
+          );
+        })()}
 
         <div className="mt-4 flex items-center justify-between">
           <span className="text-[11.5px] text-muted-foreground">{note.date}</span>

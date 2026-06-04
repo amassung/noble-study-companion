@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Sparkles, Plus, Flame, BookOpen, Timer, ArrowRight } from "lucide-react";
+import { Sparkles, Plus, Flame, BookOpen, Timer, ArrowRight, CalendarClock } from "lucide-react";
 import { useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
-import { createNote, deleteNote, formatRelative, useNotes } from "@/lib/notes-store";
+import { createNote, daysUntil, deleteNote, formatRelative, formatTestCountdown, useNotes } from "@/lib/notes-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -29,7 +29,12 @@ function Home() {
     preview: n.body,
     date: formatRelative(n.updatedAt),
     guideReady: n.body.length > 240,
+    testDate: n.testDate ?? null,
   }));
+
+  const upcoming = stored
+    .filter((n) => n.testDate != null && daysUntil(n.testDate!) >= 0)
+    .sort((a, b) => (a.testDate ?? 0) - (b.testDate ?? 0));
 
   const handleNew = () => {
     const note = createNote();
@@ -54,7 +59,17 @@ function Home() {
           Good evening, Duke <span className="inline-block">👋</span>
         </h1>
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-          You have <span className="font-medium text-foreground">2 tests</span> this week. Ready to study?
+          {upcoming.length > 0 ? (
+            <>
+              You have{" "}
+              <span className="font-medium text-foreground">
+                {upcoming.length} {upcoming.length === 1 ? "test" : "tests"}
+              </span>{" "}
+              coming up. Ready to study?
+            </>
+          ) : (
+            <>No tests scheduled. Set a test date to start a countdown.</>
+          )}
         </p>
       </header>
 
@@ -81,7 +96,64 @@ function Home() {
         <ArrowRight className="relative h-5 w-5 text-white/90 transition-transform group-hover:translate-x-0.5" />
       </button>
 
+      {upcoming.length > 0 && (
+        <section className="mt-10 animate-float-in">
+          <div className="mb-4 flex items-end justify-between">
+            <div>
+              <h2 className="text-[18px] font-semibold tracking-tight">Upcoming tests</h2>
+              <p className="text-[12.5px] text-muted-foreground">Sorted by closest date.</p>
+            </div>
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary ring-1 ring-inset ring-primary/25">
+              {upcoming.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {upcoming.map((n, i) => {
+              const d = daysUntil(n.testDate!);
+              const urgent = d <= 2;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => setOpenId(n.id)}
+                  style={{ animationDelay: `${60 + i * 50}ms` }}
+                  className={[
+                    "hover-glow group flex w-full items-center gap-3 rounded-xl border bg-[var(--surface)] p-3.5 text-left transition-colors animate-float-in",
+                    urgent ? "border-primary/40 shadow-glow" : "border-border/60",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
+                      urgent
+                        ? "bg-primary/15 text-primary ring-primary/30"
+                        : "bg-white/[0.04] text-foreground/80 ring-white/[0.06]",
+                    ].join(" ")}
+                  >
+                    <CalendarClock className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13.5px] font-medium text-foreground">
+                      {n.title || "Untitled note"}
+                    </span>
+                    <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                      {formatTestCountdown(n.testDate!, n.subjectLabel)} ·{" "}
+                      {new Date(n.testDate!).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="mt-10">
+
         <div className="mb-4 flex items-end justify-between">
           <div>
             <h2 className="text-[18px] font-semibold tracking-tight">Recent notes</h2>
