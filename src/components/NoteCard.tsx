@@ -43,6 +43,7 @@ export type Note = {
   preview: string;
   date: string;
   guideReady?: boolean;
+  testDate?: number | null;
 };
 
 type Props = {
