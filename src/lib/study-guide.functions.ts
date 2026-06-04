@@ -59,8 +59,10 @@ export const generateStudyGuide = createServerFn({ method: "POST" })
     },
   )
   .handler(async ({ data }): Promise<StudyGuide> => {
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
+
+    const model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
 
     const userPrompt = [
       data.subjectLabel ? `Subject: ${data.subjectLabel}` : null,
@@ -72,38 +74,40 @@ export const generateStudyGuide = createServerFn({ method: "POST" })
       .filter(Boolean)
       .join("\n");
 
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
+        model,
+        max_tokens: 4096,
+        system: SYSTEM,
+        messages: [{ role: "user", content: userPrompt }],
       }),
     });
 
     if (res.status === 429) {
       throw new Error("Rate limit reached. Please try again in a moment.");
     }
-    if (res.status === 402) {
-      throw new Error("AI credits exhausted. Add credits in your workspace to keep generating.");
+    if (res.status === 401 || res.status === 403) {
+      throw new Error("Invalid Anthropic API key. Check ANTHROPIC_API_KEY in .env.local.");
     }
     if (!res.ok) {
       const t = await res.text().catch(() => "");
-      console.error("AI gateway error", res.status, t);
+      console.error("Anthropic API error", res.status, t);
       throw new Error("Couldn't generate study guide. Please try again.");
     }
 
     const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
+      content?: { type: string; text?: string }[];
     };
-    const content = json.choices?.[0]?.message?.content ?? "";
+    const content =
+      json.content?.find((block) => block.type === "text")?.text ??
+      json.content?.[0]?.text ??
+      "";
     const parsed = tryParse(content);
     if (!parsed) {
       console.error("AI returned non-JSON content", content.slice(0, 500));
