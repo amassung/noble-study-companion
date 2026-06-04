@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StudyRouteImport } from './routes/study'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SearchRouteImport } from './routes/search'
 import { Route as ProgressRouteImport } from './routes/progress'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as IndexRouteImport } from './routes/index'
@@ -23,6 +24,11 @@ const StudyRoute = StudyRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProgressRoute = ProgressRouteImport.update({
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/notes': typeof NotesRoute
   '/progress': typeof ProgressRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/study': typeof StudyRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/notes': typeof NotesRoute
   '/progress': typeof ProgressRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/study': typeof StudyRoute
 }
@@ -60,21 +68,30 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/notes': typeof NotesRoute
   '/progress': typeof ProgressRoute
+  '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/study': typeof StudyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/notes' | '/progress' | '/settings' | '/study'
+  fullPaths: '/' | '/notes' | '/progress' | '/search' | '/settings' | '/study'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/notes' | '/progress' | '/settings' | '/study'
-  id: '__root__' | '/' | '/notes' | '/progress' | '/settings' | '/study'
+  to: '/' | '/notes' | '/progress' | '/search' | '/settings' | '/study'
+  id:
+    | '__root__'
+    | '/'
+    | '/notes'
+    | '/progress'
+    | '/search'
+    | '/settings'
+    | '/study'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   NotesRoute: typeof NotesRoute
   ProgressRoute: typeof ProgressRoute
+  SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
   StudyRoute: typeof StudyRoute
 }
@@ -93,6 +110,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/progress': {
@@ -123,6 +147,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   NotesRoute: NotesRoute,
   ProgressRoute: ProgressRoute,
+  SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
   StudyRoute: StudyRoute,
 }
