@@ -10,6 +10,7 @@ export type SavedGuide = {
 
 export type StoredNote = {
   guides?: SavedGuide[];
+  testDate?: number | null;
   id: string;
   title: string;
   body: string;
