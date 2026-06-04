@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Sparkles, Plus, Flame, BookOpen, Timer, ArrowRight } from "lucide-react";
+import { Sparkles, Plus, Flame, BookOpen, Timer, ArrowRight, CalendarClock } from "lucide-react";
 import { useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
-import { createNote, deleteNote, formatRelative, useNotes } from "@/lib/notes-store";
+import { createNote, daysUntil, deleteNote, formatRelative, formatTestCountdown, useNotes } from "@/lib/notes-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
