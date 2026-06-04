@@ -1,5 +1,6 @@
-import { Sparkles, Trash2 } from "lucide-react";
+import { Sparkles, Trash2, CalendarClock } from "lucide-react";
 import { useRef, useState } from "react";
+import { daysUntil, formatTestCountdown } from "@/lib/notes-store";
 
 export type Subject = "violet" | "blue" | "green" | "amber";
 
