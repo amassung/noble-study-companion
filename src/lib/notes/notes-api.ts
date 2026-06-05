@@ -89,7 +89,12 @@ export async function fetchNotes(): Promise<StoredNote[]> {
   return (data as NoteRow[]).map(rowToStoredNote);
 }
 
-export async function createNote(): Promise<StoredNote> {
+export type CreateNoteOpts = {
+  title?: string;
+  body?: string;
+};
+
+export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
   const supabase = getSupabaseClient();
   const userId = await requireUserId();
 
@@ -106,8 +111,8 @@ export async function createNote(): Promise<StoredNote> {
     .from("notes")
     .insert({
       user_id: userId,
-      title: "",
-      body: "",
+      title: opts?.title ?? "",
+      body: opts?.body ?? "",
       subject,
     })
     .select(NOTE_SELECT)

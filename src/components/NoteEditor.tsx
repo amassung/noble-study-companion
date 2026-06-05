@@ -4,6 +4,7 @@ import { Underline } from "@tiptap/extension-underline";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextStyle, FontSize } from "@tiptap/extension-text-style";
 import { useEffect, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowLeft,
   Check,
@@ -21,10 +22,12 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  FileUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatRelative, formatTestCountdown } from "@/lib/notes/format";
 import {
+  useCreateNoteMutation,
   useDeleteNoteMutation,
   useNotes,
   useNotesList,
@@ -34,6 +37,7 @@ import {
   type SavedGuide,
   type StoredNote,
 } from "@/lib/notes/use-notes";
+import { importPdf } from "@/lib/pdf/import-pdf.functions";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import type { StudyGuide } from "@/lib/study-guide.functions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -47,10 +51,14 @@ const FONT_SIZES = [
   { label: "Huge", value: "1.6em" },
 ] as const;
 
+const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
+
 // ── Types ─────────────────────────────────────────────────────────────────
 type Props = {
   noteId: string;
   onClose: () => void;
+  autoGenerate?: boolean;
+  onImportComplete?: (newNoteId: string) => void;
 };
 
 const SUBJECTS: { value: StoredNote["subject"]; label: string; dot: string }[] = [
@@ -217,13 +225,15 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────
-export function NoteEditor({ noteId, onClose }: Props) {
+export function NoteEditor({ noteId, onClose, autoGenerate, onImportComplete }: Props) {
   const { isLoading } = useNotesList();
   const allNotes = useNotes();
   const liveNote = allNotes.find((n) => n.id === noteId);
   const updateMutation = useUpdateNoteMutation();
   const deleteMutation = useDeleteNoteMutation();
   const setTestDateMutation = useSetTestDateMutation();
+  const createNoteMutation = useCreateNoteMutation();
+  const callImportPdf = useServerFn(importPdf);
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -234,10 +244,12 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [guideOpen, setGuideOpen] = useState(false);
   const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [pdfImporting, setPdfImporting] = useState(false);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ── Tiptap editor ──────────────────────────────────────────────────────
   const editor = useEditor({
@@ -302,6 +314,13 @@ export function NoteEditor({ noteId, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Auto-open study guide modal when opened from a PDF import
+  useEffect(() => {
+    if (autoGenerate && hydrated) {
+      setGuideOpen(true);
+    }
+  }, [autoGenerate, hydrated]);
+
   // ── Debounced save ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!hydrated) return;
@@ -339,6 +358,59 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
   const handleDelete = () => {
     deleteMutation.mutate(noteId, { onSuccess: onClose });
+  };
+
+  const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset input so the same file can be re-selected if needed
+    e.target.value = "";
+    if (!file) return;
+
+    if (file.size > MAX_PDF_BYTES) {
+      toast.error(`PDF is too large (max 10 MB). This file is ${(file.size / 1024 / 1024).toFixed(1)} MB.`);
+      return;
+    }
+
+    setPdfImporting(true);
+    try {
+      // Read as base64
+      const fileBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Strip "data:application/pdf;base64," prefix
+          resolve(result.split(",")[1] ?? result);
+        };
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+
+      const result = await callImportPdf({ data: { fileBase64, filename: file.name } });
+
+      if (!result.body.trim()) {
+        toast.error("No text found in this PDF. It may be a scanned or image-only document.");
+        return;
+      }
+
+      if (result.truncated) {
+        toast.info(`PDF was long — imported first ${(12000).toLocaleString()} characters.`);
+      }
+
+      // Create a new note pre-filled with extracted content
+      const newNote = await createNoteMutation.mutateAsync({
+        title: result.title,
+        body: result.body,
+      });
+
+      toast.success(`Imported "${result.title || file.name}" · ${result.totalPages} page${result.totalPages !== 1 ? "s" : ""}`);
+
+      // Signal parent to open the new note with auto-generation
+      onImportComplete?.(newNote.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to import PDF. Try again.");
+    } finally {
+      setPdfImporting(false);
+    }
   };
 
   const lastSavedAt = liveNote.updatedAt;
@@ -383,13 +455,41 @@ export function NoteEditor({ noteId, onClose }: Props) {
           )}
         </div>
 
-        <button
-          onClick={() => setConfirmDelete(true)}
-          aria-label="Delete note"
-          className="hover-glow flex h-9 w-9 items-center justify-center rounded-lg border border-border/50 bg-[var(--surface)] text-muted-foreground hover:text-destructive"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Import PDF */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={(e) => void handlePdfFileChange(e)}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={pdfImporting}
+            aria-label="Import PDF"
+            title="Import PDF — creates a new note with extracted text"
+            className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/50 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {pdfImporting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            ) : (
+              <FileUp className="h-3.5 w-3.5" />
+            )}
+            <span className="hidden sm:inline">
+              {pdfImporting ? "Importing…" : "Import PDF"}
+            </span>
+          </button>
+
+          {/* Delete */}
+          <button
+            onClick={() => setConfirmDelete(true)}
+            aria-label="Delete note"
+            className="hover-glow flex h-9 w-9 items-center justify-center rounded-lg border border-border/50 bg-[var(--surface)] text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       {/* ── Formatting toolbar ────────────────────────────────────────── */}

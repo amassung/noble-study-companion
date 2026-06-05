@@ -9,6 +9,7 @@ import {
   fetchNotes,
   setTestDate,
   updateNote,
+  type CreateNoteOpts,
   type NotePatch,
 } from "./notes-api";
 import type { SavedGuide, StoredNote } from "./types";
@@ -38,7 +39,7 @@ export function useCreateNoteMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: createNote,
+    mutationFn: (opts?: CreateNoteOpts) => createNote(opts),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: notesQueryKey(user?.id) });
     },
