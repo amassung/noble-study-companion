@@ -3,6 +3,7 @@ import { StarterKit } from "@tiptap/starter-kit";
 import { Underline } from "@tiptap/extension-underline";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextStyle, FontSize } from "@tiptap/extension-text-style";
+import { Image } from "@tiptap/extension-image";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -23,6 +24,8 @@ import {
   Heading2,
   Heading3,
   FileUp,
+  FileText,
+  GalleryHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatRelative, formatTestCountdown } from "@/lib/notes/format";
@@ -51,6 +54,7 @@ const FONT_SIZES = [
 ] as const;
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
+const MAX_SLIDE_PAGES = 20; // cap to keep data-URL sizes reasonable
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type Props = {
@@ -58,7 +62,15 @@ type Props = {
   onClose: () => void;
 };
 
-type PdfPhase = "extracting" | "condensing" | null;
+type PdfPhase = "extracting" | "awaiting-choice" | "condensing" | "rendering" | null;
+
+type PendingPdf = {
+  title: string;
+  body: string;
+  totalPages: number;
+  file: File;
+  hasText: boolean;
+};
 
 const SUBJECTS: { value: StoredNote["subject"]; label: string; dot: string }[] = [
   { value: "violet", label: "Philosophy", dot: "bg-primary" },
@@ -66,6 +78,37 @@ const SUBJECTS: { value: StoredNote["subject"]; label: string; dot: string }[] =
   { value: "green", label: "Economics", dot: "bg-emerald-400" },
   { value: "amber", label: "History", dot: "bg-amber-400" },
 ];
+
+// ── Client-side PDF → images ───────────────────────────────────────────────
+async function renderPdfToImages(file: File): Promise<string[]> {
+  // Lazy-load pdfjs-dist so it doesn't bloat the initial bundle
+  const [pdfjs, { default: workerSrc }] = await Promise.all([
+    import("pdfjs-dist"),
+    import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
+  ]);
+
+  pdfjs.GlobalWorkerOptions.workerSrc = workerSrc as string;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+
+  const pageCount = Math.min(pdf.numPages, MAX_SLIDE_PAGES);
+  const images: string[] = [];
+
+  for (let i = 1; i <= pageCount; i++) {
+    const page = await pdf.getPage(i);
+    // Scale 1.4 — good balance of readability vs. data-URL size
+    const viewport = page.getViewport({ scale: 1.4 });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d")!;
+    await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport }).promise;
+    images.push(canvas.toDataURL("image/jpeg", 0.72));
+  }
+
+  return images;
+}
 
 // ── Toolbar ───────────────────────────────────────────────────────────────
 function ToolbarBtn({
@@ -108,7 +151,6 @@ function ToolbarDivider() {
 function Toolbar({ editor }: { editor: Editor | null }) {
   if (!editor) return null;
 
-  // Determine active font size
   const activeFontSize =
     (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
 
@@ -126,7 +168,6 @@ function Toolbar({ editor }: { editor: Editor | null }) {
       className="sticky top-[57px] z-10 flex flex-wrap items-center gap-0.5 border-b border-border/40 bg-[var(--surface-elevated)]/95 px-3 py-1.5 backdrop-blur-sm sm:px-5"
       onMouseDown={(e) => e.preventDefault()}
     >
-      {/* Text formatting */}
       <ToolbarBtn
         active={editor.isActive("bold")}
         onClick={() => editor.chain().focus().toggleBold().run()}
@@ -151,7 +192,6 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 
       <ToolbarDivider />
 
-      {/* Headings */}
       <ToolbarBtn
         active={editor.isActive("heading", { level: 1 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
@@ -176,7 +216,6 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 
       <ToolbarDivider />
 
-      {/* Lists */}
       <ToolbarBtn
         active={editor.isActive("bulletList")}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -194,7 +233,6 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 
       <ToolbarDivider />
 
-      {/* Highlight */}
       <ToolbarBtn
         active={editor.isActive("highlight")}
         onClick={() => editor.chain().focus().toggleHighlight().run()}
@@ -205,7 +243,6 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 
       <ToolbarDivider />
 
-      {/* Font size */}
       <select
         value={activeFontSize}
         onChange={handleFontSize}
@@ -244,6 +281,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [pdfPhase, setPdfPhase] = useState<PdfPhase>(null);
+  const [pendingPdf, setPendingPdf] = useState<PendingPdf | null>(null);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -258,6 +296,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       Highlight,
       TextStyle,
       FontSize,
+      Image.configure({ allowBase64: true, inline: false }),
     ],
     content: "",
     editorProps: {
@@ -283,13 +322,12 @@ export function NoteEditor({ noteId, onClose }: Props) {
     setSubjectLabel(
       liveNote.subjectLabel ?? SUBJECTS.find((s) => s.value === liveNote.subject)!.label,
     );
-    // setContent(html, emitUpdate=false) — won't trigger onUpdate/save cycle
     editor.commands.setContent(liveNote.body || "", false);
     setBody(liveNote.body || "");
     setHydrated(true);
   }, [liveNote, hydrated, editor]);
 
-  // Focus title on open (if title is empty, focus body instead)
+  // Focus title on open
   useEffect(() => {
     if (!hydrated) return;
     if (!liveNote?.title) {
@@ -303,16 +341,19 @@ export function NoteEditor({ noteId, onClose }: Props) {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, []);
 
-  // Escape to close
+  // Escape to close (but not when choice modal is open)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && pdfPhase !== "awaiting-choice") onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
+  }, [onClose, pdfPhase]);
 
   // ── Debounced save ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -325,7 +366,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
         { onSettled: () => setStatus("saved") },
       );
     }, 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [title, body, subject, subjectLabel, noteId, hydrated, updateMutation]);
 
   // Flush save on unmount
@@ -353,9 +396,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
     deleteMutation.mutate(noteId, { onSuccess: onClose });
   };
 
+  // ── PDF extraction (phase 1 of import) ────────────────────────────────
   const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = ""; // reset so same file can be re-imported
+    e.target.value = "";
     if (!file) return;
 
     if (file.size > MAX_PDF_BYTES) {
@@ -366,8 +410,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
     }
 
     try {
-      // ── Phase 1: extract raw text ────────────────────────────────────
       setPdfPhase("extracting");
+
       const fileBase64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
@@ -380,54 +424,120 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
       const extracted = await callImportPdf({ data: { fileBase64, filename: file.name } });
 
-      if (!extracted.body.trim()) {
-        toast.error(
-          "No text found in this PDF. It may be a scanned or image-only document.",
-        );
-        return;
-      }
-
-      // ── Phase 2: condense with Claude ────────────────────────────────
-      setPdfPhase("condensing");
-      const condensed = await callCondense({
-        data: { text: extracted.body, sourceTitle: extracted.title },
+      // Show choice modal — user decides what to do with the content
+      setPendingPdf({
+        title: extracted.title || file.name.replace(/\.pdf$/i, ""),
+        body: extracted.body,
+        totalPages: extracted.totalPages,
+        file,
+        hasText: extracted.body.trim().length > 0,
       });
-
-      // ── Insert into current note ──────────────────────────────────────
-      if (editor) {
-        // If note body is empty, place cursor at start; otherwise append
-        const isEmpty = editor.isEmpty;
-
-        // Wrap in a labelled section so the student knows where it came from
-        const sourceLabel = extracted.title || file.name.replace(/\.pdf$/i, "");
-        const separator = isEmpty ? "" : "<p></p>";
-        const insertHtml = `${separator}<h2>📄 ${sourceLabel}</h2>${condensed.html}`;
-
-        editor.chain().focus("end").insertContent(insertHtml).run();
-        // Sync body state immediately so debounce save picks it up
-        setBody(editor.getHTML());
-
-        // If title is blank, fill it from the PDF
-        if (!title.trim()) {
-          setTitle(extracted.title || sourceLabel);
-        }
-      }
-
-      toast.success(
-        `Condensed "${extracted.title || file.name}" · ${extracted.totalPages} page${extracted.totalPages !== 1 ? "s" : ""}`,
-      );
+      setPdfPhase("awaiting-choice");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to import PDF. Try again.",
-      );
-    } finally {
+      toast.error(err instanceof Error ? err.message : "Failed to read PDF. Try again.");
       setPdfPhase(null);
     }
   };
 
+  // ── Import choice handlers ─────────────────────────────────────────────
+  const dismissChoice = () => {
+    setPendingPdf(null);
+    setPdfPhase(null);
+  };
+
+  const insertIntoEditor = (html: string, pdfTitle: string) => {
+    if (!editor) return;
+    const separator = editor.isEmpty ? "" : "<p></p>";
+    editor.chain().focus("end").insertContent(`${separator}${html}`).run();
+    setBody(editor.getHTML());
+    if (!title.trim()) setTitle(pdfTitle);
+  };
+
+  const handleImportRaw = () => {
+    if (!pendingPdf) return;
+    const sourceLabel = pendingPdf.title;
+    // Convert plain text line-breaks to paragraph HTML
+    const paragraphs = pendingPdf.body
+      .split(/\n{2,}/)
+      .map((p) => `<p>${p.replace(/\n/g, " ").trim()}</p>`)
+      .filter((p) => p !== "<p></p>")
+      .join("");
+    insertIntoEditor(`<h2>📄 ${sourceLabel}</h2>${paragraphs || "<p></p>"}`, sourceLabel);
+    toast.success(
+      `Imported "${sourceLabel}" · ${pendingPdf.totalPages} page${pendingPdf.totalPages !== 1 ? "s" : ""}`,
+    );
+    dismissChoice();
+  };
+
+  const handleImportCondense = async () => {
+    if (!pendingPdf) return;
+    setPdfPhase("condensing");
+    try {
+      const condensed = await callCondense({
+        data: { text: pendingPdf.body, sourceTitle: pendingPdf.title },
+      });
+      const sourceLabel = pendingPdf.title;
+      insertIntoEditor(`<h2>📄 ${sourceLabel}</h2>${condensed.html}`, sourceLabel);
+      toast.success(
+        `Condensed "${sourceLabel}" · ${pendingPdf.totalPages} page${pendingPdf.totalPages !== 1 ? "s" : ""}`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't condense document. Try again.");
+    } finally {
+      dismissChoice();
+    }
+  };
+
+  const handleImportSlides = async () => {
+    if (!pendingPdf) return;
+    setPdfPhase("rendering");
+    try {
+      const images = await renderPdfToImages(pendingPdf.file);
+      const sourceLabel = pendingPdf.title;
+      const renderedCount = images.length;
+      const truncated = pendingPdf.totalPages > MAX_SLIDE_PAGES;
+
+      // Build slides HTML: each page as an image followed by a paragraph for notes
+      const slidesHtml = images
+        .map(
+          (src, idx) =>
+            `<img src="${src}" alt="Slide ${idx + 1}" /><p></p>`,
+        )
+        .join("");
+
+      const truncatedNote = truncated
+        ? `<p><em>Showing first ${MAX_SLIDE_PAGES} of ${pendingPdf.totalPages} pages.</em></p>`
+        : "";
+
+      insertIntoEditor(
+        `<h2>📄 ${sourceLabel}</h2>${truncatedNote}${slidesHtml}`,
+        sourceLabel,
+      );
+
+      toast.success(
+        `Imported ${renderedCount} slide${renderedCount !== 1 ? "s" : ""} from "${sourceLabel}"${truncated ? ` (first ${MAX_SLIDE_PAGES})` : ""}`,
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't render slides. Try 'Raw Text' instead.",
+      );
+    } finally {
+      dismissChoice();
+    }
+  };
+
   const lastSavedAt = liveNote.updatedAt;
-  // Strip HTML tags for word-count check (generate button threshold)
   const plainBodyLength = body.replace(/<[^>]*>/g, "").trim().length;
+
+  // Import PDF button label
+  const pdfBtnLabel =
+    pdfPhase === "extracting"
+      ? "Extracting…"
+      : pdfPhase === "condensing"
+        ? "Condensing…"
+        : pdfPhase === "rendering"
+          ? "Rendering…"
+          : "Import PDF";
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-float-in">
@@ -436,7 +546,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
         aria-hidden
         className="pointer-events-none absolute -top-32 left-1/2 -z-10 h-[420px] w-[820px] -translate-x-1/2 rounded-full opacity-25 blur-3xl"
         style={{
-          background: "radial-gradient(ellipse at center, oklch(0.55 0.24 295 / 0.6), transparent 60%)",
+          background:
+            "radial-gradient(ellipse at center, oklch(0.55 0.24 295 / 0.6), transparent 60%)",
         }}
       />
 
@@ -479,22 +590,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={pdfPhase !== null}
-            aria-label="Import & condense PDF"
-            title="Import PDF — extracts and condenses content into this note"
+            aria-label="Import PDF"
+            title="Import PDF — choose how to insert the content into this note"
             className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/50 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pdfPhase !== null ? (
+            {pdfPhase !== null && pdfPhase !== "awaiting-choice" ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
             ) : (
               <FileUp className="h-3.5 w-3.5" />
             )}
-            <span className="hidden sm:inline">
-              {pdfPhase === "extracting"
-                ? "Extracting…"
-                : pdfPhase === "condensing"
-                  ? "Condensing…"
-                  : "Import PDF"}
-            </span>
+            <span className="hidden sm:inline">{pdfBtnLabel}</span>
           </button>
 
           {/* Delete */}
@@ -668,7 +773,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
         </div>
       </div>
 
-      {/* Modals */}
+      {/* ── Modals ────────────────────────────────────────────────────── */}
       {guideOpen && (
         <StudyGuideModal
           open={guideOpen}
@@ -687,7 +792,94 @@ export function NoteEditor({ noteId, onClose }: Props) {
         />
       )}
 
-      {/* Delete note confirm */}
+      {/* ── PDF Import Choice Modal ───────────────────────────────────── */}
+      {pdfPhase === "awaiting-choice" && pendingPdf && (
+        <div
+          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+          onClick={dismissChoice}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 pb-7 shadow-glow-lg sm:rounded-2xl animate-float-in"
+          >
+            {/* Header */}
+            <div className="mb-4 flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/30">
+                <FileUp className="h-4.5 w-4.5" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-semibold tracking-tight">How do you want to import?</h3>
+                <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                  {pendingPdf.title}
+                  {pendingPdf.totalPages > 0
+                    ? ` · ${pendingPdf.totalPages} page${pendingPdf.totalPages !== 1 ? "s" : ""}`
+                    : ""}
+                  {!pendingPdf.hasText ? " · image-only PDF" : ""}
+                </p>
+              </div>
+            </div>
+
+            {/* Options */}
+            <div className="space-y-2">
+              {/* Raw Text */}
+              <ImportOption
+                icon={<FileText className="h-4 w-4" />}
+                label="Raw Text"
+                description="Insert the full extracted text as-is"
+                disabled={!pendingPdf.hasText}
+                disabledReason="No text found in this PDF"
+                onClick={handleImportRaw}
+              />
+
+              {/* Condensed */}
+              <ImportOption
+                icon={<Sparkles className="h-4 w-4" />}
+                label="Condensed"
+                badge="AI"
+                description="Summarise to key points using Claude"
+                disabled={!pendingPdf.hasText}
+                disabledReason="No text found in this PDF"
+                onClick={() => void handleImportCondense()}
+                highlight
+              />
+
+              {/* Slides */}
+              <ImportOption
+                icon={<GalleryHorizontal className="h-4 w-4" />}
+                label="Slides View"
+                description={`Render each page as an image${pendingPdf.totalPages > MAX_SLIDE_PAGES ? ` (first ${MAX_SLIDE_PAGES} of ${pendingPdf.totalPages})` : ""}`}
+                onClick={() => void handleImportSlides()}
+              />
+            </div>
+
+            <button
+              onClick={dismissChoice}
+              className="mt-4 w-full rounded-lg border border-border/60 bg-[var(--surface)] py-2 text-[13px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Loading overlay for condensing / rendering ────────────────── */}
+      {(pdfPhase === "condensing" || pdfPhase === "rendering") && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-[var(--surface-elevated)] px-8 py-6 shadow-glow-lg">
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
+            <p className="text-[13.5px] font-medium text-foreground">
+              {pdfPhase === "condensing" ? "Condensing with AI…" : "Rendering slides…"}
+            </p>
+            <p className="text-[12px] text-muted-foreground">
+              {pdfPhase === "condensing"
+                ? "Claude is summarising your document"
+                : "Converting PDF pages to images"}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete note confirm ───────────────────────────────────────── */}
       {confirmDelete && (
         <div
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
@@ -722,7 +914,74 @@ export function NoteEditor({ noteId, onClose }: Props) {
   );
 }
 
-// ── SavedGuideRow (unchanged) ─────────────────────────────────────────────
+// ── ImportOption card ─────────────────────────────────────────────────────
+function ImportOption({
+  icon,
+  label,
+  badge,
+  description,
+  disabled,
+  disabledReason,
+  onClick,
+  highlight,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  badge?: string;
+  description: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  onClick: () => void;
+  highlight?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "group flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all",
+        highlight && !disabled
+          ? "border-primary/40 bg-primary/10 hover:bg-primary/15 hover:border-primary/60"
+          : "border-border/60 bg-[var(--surface)] hover:border-border hover:bg-white/[0.04]",
+        disabled && "cursor-not-allowed opacity-40",
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1",
+          highlight && !disabled
+            ? "bg-primary/20 text-primary ring-primary/30"
+            : "bg-white/[0.06] text-muted-foreground ring-white/10 group-hover:text-foreground",
+        )}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              "text-[13.5px] font-semibold",
+              highlight && !disabled ? "text-primary" : "text-foreground",
+            )}
+          >
+            {label}
+          </span>
+          {badge && !disabled && (
+            <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary ring-1 ring-primary/25">
+              {badge}
+            </span>
+          )}
+        </span>
+        <span className="mt-0.5 block text-[12px] text-muted-foreground">
+          {disabled && disabledReason ? disabledReason : description}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+// ── SavedGuideRow ─────────────────────────────────────────────────────────
 function SavedGuideRow({
   noteId,
   saved,
