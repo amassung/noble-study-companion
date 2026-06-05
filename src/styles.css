@@ -244,17 +244,17 @@ html.light .tiptap mark {
   color: oklch(0.22 0.04 90);
 }
 .tiptap img {
-  max-width: 100%;
+  width: 100%;
   height: auto;
-  border-radius: 10px;
+  border-radius: 4px;
   display: block;
-  margin: 0.6em auto;
+  margin: 0 0 16px;
   box-shadow: 0 2px 16px oklch(0 0 0 / 0.3);
   border: 1px solid oklch(1 0 0 / 0.08);
 }
 html.light .tiptap img {
-  box-shadow: 0 2px 12px oklch(0 0 0 / 0.12);
-  border-color: oklch(0 0 0 / 0.08);
+  box-shadow: 0 1px 8px oklch(0 0 0 / 0.1);
+  border-color: oklch(0 0 0 / 0.1);
 }
 
 /* ── Edit-mode card wiggle (iOS-style) ───────────────────────────────────── */

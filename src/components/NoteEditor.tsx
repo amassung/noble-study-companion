@@ -497,20 +497,19 @@ export function NoteEditor({ noteId, onClose }: Props) {
       const renderedCount = images.length;
       const truncated = pendingPdf.totalPages > MAX_SLIDE_PAGES;
 
-      // Build slides HTML: each page as an image followed by a paragraph for notes
+      // Build slides HTML: pages stacked vertically, gap handled by CSS margin-bottom on img
       const slidesHtml = images
-        .map(
-          (src, idx) =>
-            `<img src="${src}" alt="Slide ${idx + 1}" /><p></p>`,
-        )
+        .map((src, idx) => `<img src="${src}" alt="Slide ${idx + 1}" />`)
         .join("");
+      // Trailing paragraph so the cursor lands somewhere typeable after the last slide
+      const trailingP = "<p></p>";
 
       const truncatedNote = truncated
         ? `<p><em>Showing first ${MAX_SLIDE_PAGES} of ${pendingPdf.totalPages} pages.</em></p>`
         : "";
 
       insertIntoEditor(
-        `<h2>📄 ${sourceLabel}</h2>${truncatedNote}${slidesHtml}`,
+        `<h2>📄 ${sourceLabel}</h2>${truncatedNote}${slidesHtml}${trailingP}`,
         sourceLabel,
       );
 
