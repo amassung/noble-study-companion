@@ -256,3 +256,19 @@ html.light .tiptap img {
   box-shadow: 0 2px 12px oklch(0 0 0 / 0.12);
   border-color: oklch(0 0 0 / 0.08);
 }
+
+/* ── Edit-mode card wiggle (iOS-style) ───────────────────────────────────── */
+@keyframes note-wiggle {
+  0%   { transform: rotate(0deg) translateY(0); }
+  20%  { transform: rotate(-1.4deg) translateY(-1px); }
+  60%  { transform: rotate(1.4deg) translateY(-1px); }
+  80%  { transform: rotate(-0.8deg) translateY(0); }
+  100% { transform: rotate(0deg) translateY(0); }
+}
+.note-wiggle {
+  animation: note-wiggle 0.45s ease-in-out infinite;
+}
+/* Stagger each card slightly so they don't all jiggle in sync */
+.note-wiggle:nth-child(2n)   { animation-delay: 0.08s; }
+.note-wiggle:nth-child(3n)   { animation-delay: 0.16s; }
+.note-wiggle:nth-child(4n)   { animation-delay: 0.04s; }

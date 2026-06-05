@@ -1,4 +1,4 @@
-import { Sparkles, Trash2, CalendarClock } from "lucide-react";
+import { Sparkles, Trash2, CalendarClock, Minus } from "lucide-react";
 import { useRef, useState } from "react";
 import { daysUntil, formatTestCountdown } from "@/lib/notes/format";
 
@@ -51,11 +51,12 @@ type Props = {
   style?: React.CSSProperties;
   onOpen?: (id: string) => void;
   onDelete?: (id: string) => void;
+  editMode?: boolean;
 };
 
 const SWIPE_THRESHOLD = 96;
 
-export function NoteCard({ note, style, onOpen, onDelete }: Props) {
+export function NoteCard({ note, style, onOpen, onDelete, editMode = false }: Props) {
   const s = subjectStyles[note.subject];
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -73,14 +74,14 @@ export function NoteCard({ note, style, onOpen, onDelete }: Props) {
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
-    if (!onDelete) return;
+    if (!onDelete || editMode) return;
     startX.current = e.touches[0].clientX;
     startY.current = e.touches[0].clientY;
     movedAxis.current = null;
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
-    if (!onDelete || startX.current == null || startY.current == null) return;
+    if (!onDelete || editMode || startX.current == null || startY.current == null) return;
     const dx = e.touches[0].clientX - startX.current;
     const dy = e.touches[0].clientY - startY.current;
     if (movedAxis.current == null) {
@@ -105,6 +106,7 @@ export function NoteCard({ note, style, onOpen, onDelete }: Props) {
   };
 
   const handleClick = () => {
+    if (editMode) return; // card tap disabled in edit mode
     if (Math.abs(dragX) > 6) return; // ignore click after drag
     onOpen?.(note.id);
   };
@@ -112,19 +114,37 @@ export function NoteCard({ note, style, onOpen, onDelete }: Props) {
   return (
     <div
       style={style}
-      className="relative overflow-hidden rounded-xl animate-float-in"
+      className={`relative overflow-hidden rounded-xl animate-float-in ${editMode ? "note-wiggle" : ""}`}
     >
-      {/* Delete background (revealed on swipe) */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 flex items-center justify-end rounded-xl bg-gradient-to-l from-destructive/90 to-destructive/40 pr-6 text-destructive-foreground"
-        style={{ opacity: Math.min(1, Math.abs(dragX) / SWIPE_THRESHOLD) }}
-      >
-        <div className="flex items-center gap-2 text-[13px] font-semibold">
-          <Trash2 className="h-4 w-4" />
-          {Math.abs(dragX) > SWIPE_THRESHOLD ? "Release to delete" : "Swipe to delete"}
+      {/* Delete background (revealed on swipe — hidden in edit mode) */}
+      {!editMode && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 flex items-center justify-end rounded-xl bg-gradient-to-l from-destructive/90 to-destructive/40 pr-6 text-destructive-foreground"
+          style={{ opacity: Math.min(1, Math.abs(dragX) / SWIPE_THRESHOLD) }}
+        >
+          <div className="flex items-center gap-2 text-[13px] font-semibold">
+            <Trash2 className="h-4 w-4" />
+            {Math.abs(dragX) > SWIPE_THRESHOLD ? "Release to delete" : "Swipe to delete"}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Edit-mode delete badge (top-left corner) */}
+      {editMode && onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setRemoving(true);
+            setTimeout(() => onDelete(note.id), 180);
+          }}
+          aria-label={`Delete ${note.title || "note"}`}
+          className="absolute -left-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-white shadow-lg ring-2 ring-background transition-transform active:scale-90"
+        >
+          <Minus className="h-3.5 w-3.5" strokeWidth={3} />
+        </button>
+      )}
 
       <article
         onTouchStart={onTouchStart}
@@ -135,7 +155,7 @@ export function NoteCard({ note, style, onOpen, onDelete }: Props) {
           transform: `translateX(${dragX}px)`,
           transition: dragging && !removing ? "none" : "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)",
         }}
-        className="hover-glow group relative cursor-pointer overflow-hidden rounded-xl border border-border/60 bg-[var(--surface)] p-5 shadow-card transition-[box-shadow,transform,border-color] duration-200 hover:-translate-y-0.5 touch-pan-y"
+        className={`group relative overflow-hidden rounded-xl border border-border/60 bg-[var(--surface)] p-5 shadow-card transition-[box-shadow,opacity,border-color] duration-200 touch-pan-y ${editMode ? "cursor-default select-none opacity-80" : "hover-glow cursor-pointer hover:-translate-y-0.5"}`}
       >
         <span className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${s.bar} opacity-80 group-hover:opacity-100`} />
 

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { NotebookPen, Plus } from "lucide-react";
+import { NotebookPen, Plus, Pencil, Check } from "lucide-react";
 import { useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
@@ -22,6 +22,7 @@ function NotesPage() {
   const createNoteMutation = useCreateNoteMutation();
   const deleteNoteMutation = useDeleteNoteMutation();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
 
   const notes: Note[] = stored.map((n) => ({
     id: n.id,
@@ -35,6 +36,7 @@ function NotesPage() {
   }));
 
   const handleNew = async () => {
+    setEditMode(false);
     const note = await createNoteMutation.mutateAsync();
     setOpenId(note.id);
   };
@@ -61,13 +63,38 @@ function NotesPage() {
             </p>
           </div>
         </div>
-        <button
-          onClick={handleNew}
-          className="hover-glow flex items-center gap-1.5 rounded-lg bg-gradient-violet px-3.5 py-2 text-[13px] font-medium text-white shadow-glow"
-        >
-          <Plus className="h-4 w-4" />
-          New note
-        </button>
+        <div className="flex items-center gap-2">
+          {notes.length > 0 && (
+            <button
+              onClick={() => setEditMode((v) => !v)}
+              className={`hover-glow flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                editMode
+                  ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
+                  : "border-border/50 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {editMode ? (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  Done
+                </>
+              ) : (
+                <>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </>
+              )}
+            </button>
+          )}
+          <button
+            onClick={handleNew}
+            disabled={editMode}
+            className="hover-glow flex items-center gap-1.5 rounded-lg bg-gradient-violet px-3.5 py-2 text-[13px] font-medium text-white shadow-glow disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Plus className="h-4 w-4" />
+            New note
+          </button>
+        </div>
       </div>
 
       {notes.length === 0 ? (
@@ -88,14 +115,23 @@ function NotesPage() {
               key={n.id}
               note={n}
               style={{ animationDelay: `${60 + i * 40}ms` }}
-              onOpen={setOpenId}
+              onOpen={editMode ? undefined : setOpenId}
               onDelete={(id) => deleteNoteMutation.mutate(id)}
+              editMode={editMode}
             />
           ))}
         </div>
       )}
 
-      {openId && <NoteEditor noteId={openId} onClose={() => setOpenId(null)} />}
+      {openId && (
+        <NoteEditor
+          noteId={openId}
+          onClose={() => {
+            setOpenId(null);
+            setEditMode(false);
+          }}
+        />
+      )}
     </div>
   );
 }
