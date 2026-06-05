@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthGate } from "../lib/auth/auth-gate";
 import { AuthProvider } from "../lib/auth/auth-provider";
+import { ThemeProvider } from "../lib/theme/theme-provider";
 import { Toaster } from "../components/ui/sonner";
 
 function NotFoundComponent() {
@@ -105,6 +106,12 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
+        {/* Anti-flash: apply stored theme class before first paint */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('nobi:theme');if(t==='light')document.documentElement.classList.add('light')}catch(e){}`,
+          }}
+        />
         <HeadContent />
       </head>
       <body>
@@ -120,12 +127,14 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AuthGate>
-          <Outlet />
-        </AuthGate>
-        <Toaster richColors position="top-center" />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AuthGate>
+            <Outlet />
+          </AuthGate>
+          <Toaster richColors position="top-center" />
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

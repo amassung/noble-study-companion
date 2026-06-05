@@ -1,5 +1,27 @@
+import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { StarterKit } from "@tiptap/starter-kit";
+import { Underline } from "@tiptap/extension-underline";
+import { Highlight } from "@tiptap/extension-highlight";
+import { TextStyle, FontSize } from "@tiptap/extension-text-style";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, Trash2, Sparkles, Loader2, CalendarClock, X as XIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Trash2,
+  Sparkles,
+  Loader2,
+  CalendarClock,
+  X as XIcon,
+  Bold,
+  Italic,
+  Underline as UnderlineIcon,
+  List,
+  ListOrdered,
+  Highlighter,
+  Heading1,
+  Heading2,
+  Heading3,
+} from "lucide-react";
 import { toast } from "sonner";
 import { formatRelative, formatTestCountdown } from "@/lib/notes/format";
 import {
@@ -18,6 +40,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 
+const FONT_SIZES = [
+  { label: "Small", value: "0.85em" },
+  { label: "Normal", value: "" },
+  { label: "Large", value: "1.25em" },
+  { label: "Huge", value: "1.6em" },
+] as const;
+
+// ── Types ─────────────────────────────────────────────────────────────────
 type Props = {
   noteId: string;
   onClose: () => void;
@@ -30,6 +60,163 @@ const SUBJECTS: { value: StoredNote["subject"]; label: string; dot: string }[] =
   { value: "amber", label: "History", dot: "bg-amber-400" },
 ];
 
+// ── Toolbar ───────────────────────────────────────────────────────────────
+function ToolbarBtn({
+  active,
+  onClick,
+  title,
+  children,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => {
+        e.preventDefault(); // keep editor focus
+        onClick();
+      }}
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      className={cn(
+        "flex min-h-[36px] min-w-[36px] items-center justify-center rounded-md text-[13px] font-semibold transition-colors",
+        active
+          ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/25"
+          : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolbarDivider() {
+  return <span className="mx-0.5 h-5 w-px shrink-0 rounded-full bg-border/60" />;
+}
+
+function Toolbar({ editor }: { editor: Editor | null }) {
+  if (!editor) return null;
+
+  // Determine active font size
+  const activeFontSize =
+    (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
+
+  const handleFontSize = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (!val) {
+      editor.chain().focus().unsetFontSize().run();
+    } else {
+      editor.chain().focus().setFontSize(val).run();
+    }
+  };
+
+  return (
+    <div
+      className="sticky top-[57px] z-10 flex flex-wrap items-center gap-0.5 border-b border-border/40 bg-[var(--surface-elevated)]/95 px-3 py-1.5 backdrop-blur-sm sm:px-5"
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      {/* Text formatting */}
+      <ToolbarBtn
+        active={editor.isActive("bold")}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+        title="Bold"
+      >
+        <Bold className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive("italic")}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+        title="Italic"
+      >
+        <Italic className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive("underline")}
+        onClick={() => editor.chain().focus().toggleUnderline().run()}
+        title="Underline"
+      >
+        <UnderlineIcon className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </ToolbarBtn>
+
+      <ToolbarDivider />
+
+      {/* Headings */}
+      <ToolbarBtn
+        active={editor.isActive("heading", { level: 1 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        title="Heading 1"
+      >
+        <Heading1 className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive("heading", { level: 2 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        title="Heading 2"
+      >
+        <Heading2 className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive("heading", { level: 3 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+        title="Heading 3"
+      >
+        <Heading3 className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
+
+      <ToolbarDivider />
+
+      {/* Lists */}
+      <ToolbarBtn
+        active={editor.isActive("bulletList")}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+        title="Bullet list"
+      >
+        <List className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive("orderedList")}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        title="Numbered list"
+      >
+        <ListOrdered className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
+
+      <ToolbarDivider />
+
+      {/* Highlight */}
+      <ToolbarBtn
+        active={editor.isActive("highlight")}
+        onClick={() => editor.chain().focus().toggleHighlight().run()}
+        title="Highlight"
+      >
+        <Highlighter className="h-3.5 w-3.5" strokeWidth={2} />
+      </ToolbarBtn>
+
+      <ToolbarDivider />
+
+      {/* Font size */}
+      <select
+        value={activeFontSize}
+        onChange={handleFontSize}
+        title="Font size"
+        aria-label="Font size"
+        className="h-[36px] cursor-pointer rounded-md border border-border/60 bg-[var(--surface)] px-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus:outline-none"
+      >
+        {FONT_SIZES.map((s) => (
+          <option key={s.label} value={s.value}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────
 export function NoteEditor({ noteId, onClose }: Props) {
   const { isLoading } = useNotesList();
   const allNotes = useNotes();
@@ -52,42 +239,70 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // ── Tiptap editor ──────────────────────────────────────────────────────
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      Underline,
+      Highlight,
+      TextStyle,
+      FontSize,
+    ],
+    content: "",
+    editorProps: {
+      attributes: {
+        class: "tiptap",
+        "data-placeholder": "Start writing your notes here…",
+      },
+    },
+    onUpdate: ({ editor: e }) => {
+      setBody(e.getHTML());
+    },
+  });
+
+  // ── Hydration: populate editor once per noteId ─────────────────────────
   useEffect(() => {
     setHydrated(false);
   }, [noteId]);
 
   useEffect(() => {
-    if (!liveNote || hydrated) return;
+    if (!liveNote || hydrated || !editor) return;
     setTitle(liveNote.title);
-    setBody(liveNote.body);
     setSubject(liveNote.subject);
     setSubjectLabel(
       liveNote.subjectLabel ?? SUBJECTS.find((s) => s.value === liveNote.subject)!.label,
     );
+    // setContent(html, emitUpdate=false) — won't trigger onUpdate/save cycle
+    editor.commands.setContent(liveNote.body || "", false);
+    setBody(liveNote.body || "");
     setHydrated(true);
-  }, [liveNote, hydrated]);
+  }, [liveNote, hydrated, editor]);
 
+  // Focus title on open (if title is empty, focus body instead)
   useEffect(() => {
-    if (!hydrated || !liveNote?.title) return;
-    titleRef.current?.focus();
-  }, [hydrated, liveNote?.title]);
+    if (!hydrated) return;
+    if (!liveNote?.title) {
+      editor?.commands.focus("end");
+    } else {
+      titleRef.current?.focus();
+    }
+  }, [hydrated, liveNote?.title, editor]);
 
+  // Lock body scroll while editor is open
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return () => { document.body.style.overflow = prev; };
   }, []);
 
+  // Escape to close
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // ── Debounced save ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!hydrated) return;
     setStatus("saving");
@@ -98,11 +313,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
         { onSettled: () => setStatus("saved") },
       );
     }, 400);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [title, body, subject, subjectLabel, noteId, hydrated, updateMutation]);
 
+  // Flush save on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -121,18 +335,19 @@ export function NoteEditor({ noteId, onClose }: Props) {
     );
   }
 
-  if (!liveNote) {
-    return null;
-  }
+  if (!liveNote) return null;
 
   const handleDelete = () => {
     deleteMutation.mutate(noteId, { onSuccess: onClose });
   };
 
   const lastSavedAt = liveNote.updatedAt;
+  // Strip HTML tags for word-count check (generate button threshold)
+  const plainBodyLength = body.replace(/<[^>]*>/g, "").trim().length;
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-float-in">
+      {/* Ambient glow */}
       <div
         aria-hidden
         className="pointer-events-none absolute -top-32 left-1/2 -z-10 h-[420px] w-[820px] -translate-x-1/2 rounded-full opacity-25 blur-3xl"
@@ -141,8 +356,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
         }}
       />
 
+      {/* ── Header ───────────────────────────────────────────────────── */}
       <header
-        className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/40 px-4 py-3 backdrop-blur-xl sm:px-6"
+        className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/40 px-4 py-3 backdrop-blur-xl sm:px-6"
         style={{ backgroundColor: "color-mix(in oklab, var(--background) 80%, transparent)" }}
       >
         <button
@@ -176,8 +392,14 @@ export function NoteEditor({ noteId, onClose }: Props) {
         </button>
       </header>
 
+      {/* ── Formatting toolbar ────────────────────────────────────────── */}
+      <Toolbar editor={editor} />
+
+      {/* ── Scrollable body ───────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-12">
+
+          {/* Subject chips */}
           <div className="flex flex-wrap items-center gap-2">
             {SUBJECTS.map((s) => {
               const active = s.value === subject;
@@ -202,6 +424,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
             })}
           </div>
 
+          {/* Test date */}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Popover>
               <PopoverTrigger asChild>
@@ -252,6 +475,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
             ) : null}
           </div>
 
+          {/* Title */}
           <textarea
             ref={titleRef}
             value={title}
@@ -266,32 +490,34 @@ export function NoteEditor({ noteId, onClose }: Props) {
             }}
           />
 
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Start writing your notes here…"
-            className="mt-4 min-h-[55vh] w-full resize-none bg-transparent text-[16px] leading-[1.7] text-foreground/90 placeholder:text-muted-foreground/50 focus:outline-none"
-          />
+          {/* Rich text editor */}
+          <div className="mt-4">
+            <EditorContent editor={editor} />
+          </div>
 
+          {/* Generate Study Guide */}
           <button
             onClick={() => setGuideOpen(true)}
-            disabled={body.trim().length < 20}
-            className="group mt-8 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+            disabled={plainBodyLength < 20}
+            className="group mt-10 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
             aria-label="Generate study guide"
           >
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
               <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
             </span>
             <span className="flex-1">
-              <span className="block text-[14.5px] font-semibold text-white">Generate Study Guide</span>
+              <span className="block text-[14.5px] font-semibold text-white">
+                Generate Study Guide
+              </span>
               <span className="mt-0.5 block text-[12.5px] text-white/80">
-                {body.trim().length < 20
+                {plainBodyLength < 20
                   ? "Write a few sentences first…"
                   : "Key concepts, terms, and practice questions — in seconds."}
               </span>
             </span>
           </button>
 
+          {/* Saved guides */}
           <section className="mt-10">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -326,6 +552,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
         </div>
       </div>
 
+      {/* Modals */}
       {guideOpen && (
         <StudyGuideModal
           open={guideOpen}
@@ -344,6 +571,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
         />
       )}
 
+      {/* Delete note confirm */}
       {confirmDelete && (
         <div
           className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
@@ -378,6 +606,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   );
 }
 
+// ── SavedGuideRow (unchanged) ─────────────────────────────────────────────
 function SavedGuideRow({
   noteId,
   saved,
