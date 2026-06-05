@@ -27,7 +27,6 @@ import {
 import { toast } from "sonner";
 import { formatRelative, formatTestCountdown } from "@/lib/notes/format";
 import {
-  useCreateNoteMutation,
   useDeleteNoteMutation,
   useNotes,
   useNotesList,
@@ -37,7 +36,7 @@ import {
   type SavedGuide,
   type StoredNote,
 } from "@/lib/notes/use-notes";
-import { importPdf } from "@/lib/pdf/import-pdf.functions";
+import { importPdf, condensePdfContent } from "@/lib/pdf/import-pdf.functions";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import type { StudyGuide } from "@/lib/study-guide.functions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -57,9 +56,9 @@ const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
 type Props = {
   noteId: string;
   onClose: () => void;
-  autoGenerate?: boolean;
-  onImportComplete?: (newNoteId: string) => void;
 };
+
+type PdfPhase = "extracting" | "condensing" | null;
 
 const SUBJECTS: { value: StoredNote["subject"]; label: string; dot: string }[] = [
   { value: "violet", label: "Philosophy", dot: "bg-primary" },
@@ -225,15 +224,15 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────
-export function NoteEditor({ noteId, onClose, autoGenerate, onImportComplete }: Props) {
+export function NoteEditor({ noteId, onClose }: Props) {
   const { isLoading } = useNotesList();
   const allNotes = useNotes();
   const liveNote = allNotes.find((n) => n.id === noteId);
   const updateMutation = useUpdateNoteMutation();
   const deleteMutation = useDeleteNoteMutation();
   const setTestDateMutation = useSetTestDateMutation();
-  const createNoteMutation = useCreateNoteMutation();
   const callImportPdf = useServerFn(importPdf);
+  const callCondense = useServerFn(condensePdfContent);
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -244,7 +243,7 @@ export function NoteEditor({ noteId, onClose, autoGenerate, onImportComplete }: 
   const [guideOpen, setGuideOpen] = useState(false);
   const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [pdfImporting, setPdfImporting] = useState(false);
+  const [pdfPhase, setPdfPhase] = useState<PdfPhase>(null);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -314,12 +313,6 @@ export function NoteEditor({ noteId, onClose, autoGenerate, onImportComplete }: 
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Auto-open study guide modal when opened from a PDF import
-  useEffect(() => {
-    if (autoGenerate && hydrated) {
-      setGuideOpen(true);
-    }
-  }, [autoGenerate, hydrated]);
 
   // ── Debounced save ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -362,54 +355,73 @@ export function NoteEditor({ noteId, onClose, autoGenerate, onImportComplete }: 
 
   const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    // Reset input so the same file can be re-selected if needed
-    e.target.value = "";
+    e.target.value = ""; // reset so same file can be re-imported
     if (!file) return;
 
     if (file.size > MAX_PDF_BYTES) {
-      toast.error(`PDF is too large (max 10 MB). This file is ${(file.size / 1024 / 1024).toFixed(1)} MB.`);
+      toast.error(
+        `PDF too large (max 10 MB). This file is ${(file.size / 1024 / 1024).toFixed(1)} MB.`,
+      );
       return;
     }
 
-    setPdfImporting(true);
     try {
-      // Read as base64
+      // ── Phase 1: extract raw text ────────────────────────────────────
+      setPdfPhase("extracting");
       const fileBase64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
           const result = reader.result as string;
-          // Strip "data:application/pdf;base64," prefix
           resolve(result.split(",")[1] ?? result);
         };
         reader.onerror = () => reject(new Error("Failed to read file"));
         reader.readAsDataURL(file);
       });
 
-      const result = await callImportPdf({ data: { fileBase64, filename: file.name } });
+      const extracted = await callImportPdf({ data: { fileBase64, filename: file.name } });
 
-      if (!result.body.trim()) {
-        toast.error("No text found in this PDF. It may be a scanned or image-only document.");
+      if (!extracted.body.trim()) {
+        toast.error(
+          "No text found in this PDF. It may be a scanned or image-only document.",
+        );
         return;
       }
 
-      if (result.truncated) {
-        toast.info(`PDF was long — imported first ${(12000).toLocaleString()} characters.`);
-      }
-
-      // Create a new note pre-filled with extracted content
-      const newNote = await createNoteMutation.mutateAsync({
-        title: result.title,
-        body: result.body,
+      // ── Phase 2: condense with Claude ────────────────────────────────
+      setPdfPhase("condensing");
+      const condensed = await callCondense({
+        data: { text: extracted.body, sourceTitle: extracted.title },
       });
 
-      toast.success(`Imported "${result.title || file.name}" · ${result.totalPages} page${result.totalPages !== 1 ? "s" : ""}`);
+      // ── Insert into current note ──────────────────────────────────────
+      if (editor) {
+        // If note body is empty, place cursor at start; otherwise append
+        const isEmpty = editor.isEmpty;
 
-      // Signal parent to open the new note with auto-generation
-      onImportComplete?.(newNote.id);
+        // Wrap in a labelled section so the student knows where it came from
+        const sourceLabel = extracted.title || file.name.replace(/\.pdf$/i, "");
+        const separator = isEmpty ? "" : "<p></p>";
+        const insertHtml = `${separator}<h2>📄 ${sourceLabel}</h2>${condensed.html}`;
+
+        editor.chain().focus("end").insertContent(insertHtml).run();
+        // Sync body state immediately so debounce save picks it up
+        setBody(editor.getHTML());
+
+        // If title is blank, fill it from the PDF
+        if (!title.trim()) {
+          setTitle(extracted.title || sourceLabel);
+        }
+      }
+
+      toast.success(
+        `Condensed "${extracted.title || file.name}" · ${extracted.totalPages} page${extracted.totalPages !== 1 ? "s" : ""}`,
+      );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to import PDF. Try again.");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to import PDF. Try again.",
+      );
     } finally {
-      setPdfImporting(false);
+      setPdfPhase(null);
     }
   };
 
@@ -466,18 +478,22 @@ export function NoteEditor({ noteId, onClose, autoGenerate, onImportComplete }: 
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={pdfImporting}
-            aria-label="Import PDF"
-            title="Import PDF — creates a new note with extracted text"
+            disabled={pdfPhase !== null}
+            aria-label="Import & condense PDF"
+            title="Import PDF — extracts and condenses content into this note"
             className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/50 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pdfImporting ? (
+            {pdfPhase !== null ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
             ) : (
               <FileUp className="h-3.5 w-3.5" />
             )}
             <span className="hidden sm:inline">
-              {pdfImporting ? "Importing…" : "Import PDF"}
+              {pdfPhase === "extracting"
+                ? "Extracting…"
+                : pdfPhase === "condensing"
+                  ? "Condensing…"
+                  : "Import PDF"}
             </span>
           </button>
 

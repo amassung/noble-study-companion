@@ -22,17 +22,6 @@ function NotesPage() {
   const createNoteMutation = useCreateNoteMutation();
   const deleteNoteMutation = useDeleteNoteMutation();
   const [openId, setOpenId] = useState<string | null>(null);
-  const [autoGenerate, setAutoGenerate] = useState(false);
-
-  const handleImportComplete = (newNoteId: string) => {
-    setAutoGenerate(true);
-    setOpenId(newNoteId);
-  };
-
-  const handleClose = () => {
-    setOpenId(null);
-    setAutoGenerate(false);
-  };
 
   const notes: Note[] = stored.map((n) => ({
     id: n.id,
@@ -106,14 +95,7 @@ function NotesPage() {
         </div>
       )}
 
-      {openId && (
-        <NoteEditor
-          noteId={openId}
-          onClose={handleClose}
-          autoGenerate={autoGenerate}
-          onImportComplete={handleImportComplete}
-        />
-      )}
+      {openId && <NoteEditor noteId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
 }
