@@ -92,6 +92,8 @@ export async function fetchNotes(): Promise<StoredNote[]> {
 export type CreateNoteOpts = {
   title?: string;
   body?: string;
+  subject?: Subject;
+  subjectLabel?: string;
 };
 
 export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
@@ -105,7 +107,8 @@ export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
 
   if (countError) throw countError;
 
-  const subject = NOTE_SUBJECTS[(count ?? 0) % NOTE_SUBJECTS.length];
+  // Use caller-supplied subject if provided, otherwise cycle through colours
+  const subject = opts?.subject ?? NOTE_SUBJECTS[(count ?? 0) % NOTE_SUBJECTS.length];
 
   const { data, error } = await supabase
     .from("notes")
@@ -114,6 +117,7 @@ export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
       title: opts?.title ?? "",
       body: opts?.body ?? "",
       subject,
+      subject_label: opts?.subjectLabel ?? null,
     })
     .select(NOTE_SELECT)
     .single();

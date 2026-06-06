@@ -616,7 +616,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       <Toolbar editor={editor} />
 
       {/* ── Scrollable body ───────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-12">
 
           {/* Subject chips */}
