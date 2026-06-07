@@ -1,9 +1,12 @@
-import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { useEditor, EditorContent, ReactNodeViewRenderer, type Editor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
 import { Underline } from "@tiptap/extension-underline";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextStyle, FontSize } from "@tiptap/extension-text-style";
 import { Image } from "@tiptap/extension-image";
+import { AnnotationToolbar } from "@/components/AnnotationToolbar";
+import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
+import { useAnnotationContext } from "@/components/AnnotationContext";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -78,6 +81,28 @@ const SUBJECTS: { value: StoredNote["subject"]; label: string; dot: string }[] =
   { value: "green", label: "Economics", dot: "bg-emerald-400" },
   { value: "amber", label: "History", dot: "bg-amber-400" },
 ];
+
+// ── AnnotatedSlide Tiptap extension ───────────────────────────────────────
+// Extends Image with a `data-slide-key` attribute + ReactNodeViewRenderer.
+// Images without the attribute render as a plain <img>.
+const AnnotatedSlideExtension = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      "data-slide-key": {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-slide-key") ?? null,
+        renderHTML: (attrs: Record<string, unknown>) => {
+          if (!attrs["data-slide-key"]) return {};
+          return { "data-slide-key": attrs["data-slide-key"] };
+        },
+      },
+    };
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(AnnotatedSlideView);
+  },
+});
 
 // ── Client-side PDF → images ───────────────────────────────────────────────
 async function renderPdfToImages(file: File): Promise<string[]> {
@@ -283,6 +308,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [pdfPhase, setPdfPhase] = useState<PdfPhase>(null);
   const [pendingPdf, setPendingPdf] = useState<PendingPdf | null>(null);
 
+  const { mode: annotationMode } = useAnnotationContext();
+  const hasSlides = body.includes("data-slide-key");
+
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
@@ -296,7 +324,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       Highlight,
       TextStyle,
       FontSize,
-      Image.configure({ allowBase64: true, inline: false }),
+      AnnotatedSlideExtension.configure({ allowBase64: true, inline: false }),
     ],
     content: "",
     editorProps: {
@@ -497,9 +525,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
       const renderedCount = images.length;
       const truncated = pendingPdf.totalPages > MAX_SLIDE_PAGES;
 
-      // Build slides HTML: pages stacked vertically, gap handled by CSS margin-bottom on img
+      // Build slides HTML: pages stacked vertically, gap handled by CSS margin-bottom on img.
+      // data-slide-key is a stable identifier used by the annotation layer.
       const slidesHtml = images
-        .map((src, idx) => `<img src="${src}" alt="Slide ${idx + 1}" />`)
+        .map((src, idx) => `<img src="${src}" alt="Slide ${idx + 1}" data-slide-key="nobi-${noteId}-${idx}" />`)
         .join("");
       // Trailing paragraph so the cursor lands somewhere typeable after the last slide
       const trailingP = "<p></p>";
@@ -615,8 +644,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
       {/* ── Formatting toolbar ────────────────────────────────────────── */}
       <Toolbar editor={editor} />
 
+      {/* ── Annotation toolbar (shown when note has slide images) ─────── */}
+      {hasSlides && <AnnotationToolbar />}
+
       {/* ── Scrollable body ───────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className={`flex-1 min-h-0 overflow-y-auto${annotationMode !== "none" ? " annotating" : ""}`}>
         <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-12">
 
           {/* Subject chips */}

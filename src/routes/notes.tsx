@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { NotebookPen, Plus, Pencil, Check } from "lucide-react";
+import { AnnotationProvider } from "@/components/AnnotationContext";
 import { useEffect, useRef, useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
@@ -199,6 +200,7 @@ function NotesPage() {
   }
 
   return (
+    <AnnotationProvider>
     <div className="animate-float-in">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -292,5 +294,6 @@ function NotesPage() {
         />
       )}
     </div>
+    </AnnotationProvider>
   );
 }

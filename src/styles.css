@@ -257,6 +257,16 @@ html.light .tiptap img {
   border-color: oklch(0 0 0 / 0.1);
 }
 
+/* ── Annotation mode: disable Tiptap selection while drawing/typing on slides */
+.annotating .ProseMirror {
+  pointer-events: none;
+  user-select: none;
+}
+/* Re-enable pointer events on annotation overlays inside the editor */
+.annotating .annotation-overlay {
+  pointer-events: all;
+}
+
 /* ── Edit-mode card wiggle (iOS-style) ───────────────────────────────────── */
 @keyframes note-wiggle {
   0%   { transform: rotate(0deg) translateY(0); }
