@@ -17,6 +17,7 @@ type NoteRow = {
   subject: string;
   subject_label: string | null;
   test_date: string | null;
+  notebook_id: string | null;
   created_at: string;
   updated_at: string;
   study_guides?: GuideRow[] | null;
@@ -40,9 +41,10 @@ function rowToStoredNote(row: NoteRow): StoredNote {
     body: row.body,
     subject: row.subject as Subject,
     subjectLabel: row.subject_label ?? undefined,
-    testDate: row.test_date ? new Date(row.test_date).getTime() : null,
-    createdAt: new Date(row.created_at).getTime(),
-    updatedAt: new Date(row.updated_at).getTime(),
+    testDate:   row.test_date ? new Date(row.test_date).getTime() : null,
+    notebookId: row.notebook_id ?? null,
+    createdAt:  new Date(row.created_at).getTime(),
+    updatedAt:  new Date(row.updated_at).getTime(),
     guides,
   };
 }
@@ -55,6 +57,7 @@ const NOTE_SELECT = `
   subject,
   subject_label,
   test_date,
+  notebook_id,
   created_at,
   updated_at,
   study_guides (
@@ -94,6 +97,7 @@ export type CreateNoteOpts = {
   body?: string;
   subject?: Subject;
   subjectLabel?: string;
+  notebookId?: string | null;
 };
 
 export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
@@ -113,11 +117,12 @@ export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
   const { data, error } = await supabase
     .from("notes")
     .insert({
-      user_id: userId,
-      title: opts?.title ?? "",
-      body: opts?.body ?? "",
+      user_id:     userId,
+      title:       opts?.title       ?? "",
+      body:        opts?.body        ?? "",
       subject,
       subject_label: opts?.subjectLabel ?? null,
+      notebook_id:   opts?.notebookId   ?? null,
     })
     .select(NOTE_SELECT)
     .single();
@@ -127,7 +132,7 @@ export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
 }
 
 export type NotePatch = Partial<
-  Pick<StoredNote, "title" | "body" | "subject" | "subjectLabel" | "testDate">
+  Pick<StoredNote, "title" | "body" | "subject" | "subjectLabel" | "testDate" | "notebookId">
 >;
 
 export async function updateNote(id: string, patch: NotePatch): Promise<void> {
@@ -143,6 +148,9 @@ export async function updateNote(id: string, patch: NotePatch): Promise<void> {
   if (patch.subjectLabel !== undefined) row.subject_label = patch.subjectLabel;
   if (patch.testDate !== undefined) {
     row.test_date = patch.testDate != null ? new Date(patch.testDate).toISOString() : null;
+  }
+  if (patch.notebookId !== undefined) {
+    row.notebook_id = patch.notebookId ?? null;
   }
 
   const { error } = await supabase.from("notes").update(row).eq("id", id).eq("user_id", userId);

@@ -14,6 +14,7 @@ export type StoredNote = {
   subject: Subject;
   subjectLabel?: string;
   testDate?: number | null;
+  notebookId?: string | null;
   createdAt: number;
   updatedAt: number;
   guides?: SavedGuide[];

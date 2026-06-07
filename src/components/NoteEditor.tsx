@@ -29,6 +29,7 @@ import {
   FileUp,
   FileText,
   GalleryHorizontal,
+  BookOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatRelative, formatTestCountdown } from "@/lib/notes/format";
@@ -44,10 +45,13 @@ import {
 } from "@/lib/notes/use-notes";
 import { importPdf, condensePdfContent } from "@/lib/pdf/import-pdf.functions";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
+import { MoveToNotebookSheet } from "@/components/MoveToNotebookSheet";
 import type { StudyGuide } from "@/lib/study-guide.functions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { useNotebooks } from "@/lib/notebooks/use-notebooks";
+import { NOTEBOOK_COLORS } from "@/lib/notebooks/types";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -310,6 +314,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
   const { mode: annotationMode } = useAnnotationContext();
   const hasSlides = body.includes("data-slide-key");
+  const notebooks = useNotebooks();
+  const [showMoveSheet, setShowMoveSheet] = useState(false);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -676,8 +682,33 @@ export function NoteEditor({ noteId, onClose }: Props) {
             })}
           </div>
 
+          {/* Notebook assignment */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {(() => {
+              const nb = notebooks.find((n) => n.id === liveNote.notebookId);
+              const c = nb ? (NOTEBOOK_COLORS.find((x) => x.value === nb.color) ?? NOTEBOOK_COLORS[0]) : null;
+              return (
+                <button
+                  onClick={() => setShowMoveSheet(true)}
+                  className={cn(
+                    "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                    nb
+                      ? `border-transparent ring-1 ring-inset ${c!.ring} ${c!.bg} ${c!.text}`
+                      : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {nb ? (
+                    <><span className="text-sm leading-none">{nb.emoji}</span>{nb.name}</>
+                  ) : (
+                    <><BookOpen className="h-3.5 w-3.5" />Add to notebook</>
+                  )}
+                </button>
+              );
+            })()}
+          </div>
+
           {/* Test date */}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Popover>
               <PopoverTrigger asChild>
                 <button
@@ -820,6 +851,18 @@ export function NoteEditor({ noteId, onClose }: Props) {
           onClose={() => setViewGuide(null)}
           note={{ title, body, subjectLabel }}
           initialGuide={viewGuide}
+        />
+      )}
+
+      {/* ── Move to notebook sheet ───────────────────────────────────── */}
+      {showMoveSheet && (
+        <MoveToNotebookSheet
+          currentNotebookId={liveNote.notebookId}
+          notebooks={notebooks}
+          onMove={(notebookId) => {
+            updateMutation.mutate({ id: noteId, patch: { notebookId } });
+          }}
+          onClose={() => setShowMoveSheet(false)}
         />
       )}
 
