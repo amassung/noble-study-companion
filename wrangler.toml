@@ -1,0 +1,9 @@
+name = "nobi"
+main = "dist/server/server.js"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Static assets served by Cloudflare's edge CDN (zero-cost, no Worker invocation)
+[assets]
+directory = "dist/client"
+binding = "ASSETS"
