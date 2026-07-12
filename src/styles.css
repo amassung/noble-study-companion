@@ -341,51 +341,107 @@ html.light .tiptap img {
   pointer-events: all;
 }
 
-/* ── Paper templates (GoodNotes-style ruling behind note content) ─────────── */
-/* Applied to the editor "page" card. background-image layers over the card's
-   --paper background-color. Line color adapts to light/dark via --paper-line. */
+/* ── Paper templates (GoodNotes-style real paper behind note content) ───────
+   Blank keeps the app's dark sheet. The ruled/grid/dotted templates render as
+   actual light cream paper with realistic notebook ruling and dark ink, like
+   GoodNotes — regardless of app theme. These rules are unlayered so they win
+   over the card's Tailwind `bg-[var(--paper)]` utility. */
+
+/* Realistic paper palette (constant — paper is always light) */
+:root {
+  --paper-cream: #faf9ee; /* warm off-white sheet */
+  --paper-ink: #23252b; /* near-black ink for body text */
+  --paper-ink-muted: rgba(35, 37, 43, 0.45);
+  --grid-line: rgba(120, 142, 178, 0.4); /* soft blue-gray grid */
+  --rule-line: rgba(96, 125, 176, 0.5); /* notebook blue rule */
+}
+
 .paper-blank {
   background-image: none;
 }
+
+/* Cream sheet shared by all ruled templates */
+.paper-ruled,
+.paper-ruled-wide,
+.paper-dotted,
+.paper-grid {
+  background-color: var(--paper-cream);
+}
+
+/* Ruled — standard notebook lines (~30px) */
 .paper-ruled {
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
-    transparent 31px,
-    var(--paper-line) 31px,
-    var(--paper-line) 32px
+    transparent 29px,
+    var(--rule-line) 29px,
+    var(--rule-line) 30px
   );
 }
+
+/* Ruled Wide — real wide-ruled loose-leaf notebook paper: a red left margin
+   line + wider-spaced blue horizontal rules (~40px) */
 .paper-ruled-wide {
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 39px,
-    var(--paper-line) 39px,
-    var(--paper-line) 40px
-  );
+  background-image:
+    linear-gradient(
+      to right,
+      transparent 0,
+      transparent 41px,
+      rgba(214, 92, 92, 0.55) 41px,
+      rgba(214, 92, 92, 0.55) 42px,
+      transparent 42px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 39px,
+      var(--rule-line) 39px,
+      var(--rule-line) 40px
+    );
 }
+
+/* Grid — fine even squares (~20px), like GoodNotes squared paper */
 .paper-grid {
   background-image:
     repeating-linear-gradient(
       to bottom,
       transparent 0,
-      transparent 27px,
-      var(--paper-line) 27px,
-      var(--paper-line) 28px
+      transparent 19px,
+      var(--grid-line) 19px,
+      var(--grid-line) 20px
     ),
     repeating-linear-gradient(
       to right,
       transparent 0,
-      transparent 27px,
-      var(--paper-line) 27px,
-      var(--paper-line) 28px
+      transparent 19px,
+      var(--grid-line) 19px,
+      var(--grid-line) 20px
     );
 }
+
+/* Dotted — dot grid on cream */
 .paper-dotted {
-  background-image: radial-gradient(var(--paper-line) 1.4px, transparent 1.4px);
-  background-size: 24px 24px;
-  background-position: 12px 12px;
+  background-image: radial-gradient(var(--grid-line) 1.3px, transparent 1.3px);
+  background-size: 22px 22px;
+  background-position: 11px 11px;
+}
+
+/* Dark ink for text sitting on the light paper templates */
+:is(.paper-ruled, .paper-ruled-wide, .paper-dotted, .paper-grid) .tiptap {
+  color: var(--paper-ink);
+  caret-color: var(--paper-ink);
+}
+:is(.paper-ruled, .paper-ruled-wide, .paper-dotted, .paper-grid)
+  .tiptap
+  :where(h1, h2, h3, p, li, strong, em, u, s, blockquote) {
+  color: var(--paper-ink);
+}
+:is(.paper-ruled, .paper-ruled-wide, .paper-dotted, .paper-grid) .tiptap blockquote {
+  border-left-color: var(--paper-ink-muted);
+}
+:is(.paper-ruled, .paper-ruled-wide, .paper-dotted, .paper-grid) .tiptap p.is-editor-empty::before {
+  color: var(--paper-ink-muted);
+  opacity: 1;
 }
 
 /* ── Edit-mode card wiggle (iOS-style) ───────────────────────────────────── */
