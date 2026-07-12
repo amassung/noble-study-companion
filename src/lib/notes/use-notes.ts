@@ -52,8 +52,20 @@ export function useUpdateNoteMutation() {
 
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: NotePatch }) => updateNote(id, patch),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: notesQueryKey(user?.id) });
+    // Patch the cached note in place instead of invalidating — autosave
+    // fires every ~400ms while typing, and refetching every note body on
+    // each save is needless load (and can race the editor).
+    onSuccess: (_data, { id, patch }) => {
+      const key = notesQueryKey(user?.id);
+      const previous = queryClient.getQueryData<StoredNote[]>(key);
+      if (!previous) return;
+      const updatedAt = Date.now();
+      queryClient.setQueryData<StoredNote[]>(
+        key,
+        previous
+          .map((n) => (n.id === id ? { ...n, ...patch, updatedAt } : n))
+          .sort((a, b) => b.updatedAt - a.updatedAt),
+      );
     },
   });
 }

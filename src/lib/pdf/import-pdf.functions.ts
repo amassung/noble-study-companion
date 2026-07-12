@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireUser } from "@/lib/supabase/require-user.server";
 
 const MAX_BODY_CHARS = 12_000; // cap before sending to Claude
+// 10 MB file cap, mirrored server-side. Base64 inflates bytes by 4/3.
+const MAX_PDF_BASE64_CHARS = Math.ceil((10 * 1024 * 1024 * 4) / 3);
 
 export type PdfImportResult = {
   title: string;
@@ -15,18 +18,21 @@ export type CondenseResult = {
 
 // ── Step 1: extract raw text from PDF ────────────────────────────────────
 export const importPdf = createServerFn({ method: "POST" })
-  .inputValidator(
-    (input: { fileBase64: string; filename: string }) => {
-      if (!input?.fileBase64 || typeof input.fileBase64 !== "string") {
-        throw new Error("Invalid input: fileBase64 required");
-      }
-      return {
-        fileBase64: input.fileBase64,
-        filename: (input.filename ?? "").slice(0, 260),
-      };
-    },
-  )
+  .inputValidator((input: { fileBase64: string; filename: string }) => {
+    if (!input?.fileBase64 || typeof input.fileBase64 !== "string") {
+      throw new Error("Invalid input: fileBase64 required");
+    }
+    if (input.fileBase64.length > MAX_PDF_BASE64_CHARS) {
+      throw new Error("PDF too large (max 10 MB).");
+    }
+    return {
+      fileBase64: input.fileBase64,
+      filename: (input.filename ?? "").slice(0, 260),
+    };
+  })
   .handler(async ({ data }): Promise<PdfImportResult> => {
+    await requireUser();
+
     const { extractText, getMeta, getDocumentProxy } = await import("unpdf");
 
     // Decode base64 → Uint8Array
@@ -77,18 +83,18 @@ Structure:
 Be concise. Summarise, do not transcribe. Aim for 250-400 words total.`;
 
 export const condensePdfContent = createServerFn({ method: "POST" })
-  .inputValidator(
-    (input: { text: string; sourceTitle: string }) => {
-      if (!input?.text || typeof input.text !== "string") {
-        throw new Error("Invalid input: text required");
-      }
-      return {
-        text: input.text.slice(0, MAX_BODY_CHARS),
-        sourceTitle: (input.sourceTitle ?? "").slice(0, 300),
-      };
-    },
-  )
+  .inputValidator((input: { text: string; sourceTitle: string }) => {
+    if (!input?.text || typeof input.text !== "string") {
+      throw new Error("Invalid input: text required");
+    }
+    return {
+      text: input.text.slice(0, MAX_BODY_CHARS),
+      sourceTitle: (input.sourceTitle ?? "").slice(0, 300),
+    };
+  })
   .handler(async ({ data }): Promise<CondenseResult> => {
+    await requireUser();
+
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
 
@@ -129,10 +135,7 @@ export const condensePdfContent = createServerFn({ method: "POST" })
     const json = (await res.json()) as {
       content?: { type: string; text?: string }[];
     };
-    const raw =
-      json.content?.find((b) => b.type === "text")?.text ??
-      json.content?.[0]?.text ??
-      "";
+    const raw = json.content?.find((b) => b.type === "text")?.text ?? json.content?.[0]?.text ?? "";
 
     // Strip any accidental code fences
     const html = raw
