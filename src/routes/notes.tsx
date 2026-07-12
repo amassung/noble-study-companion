@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowLeft, NotebookPen, Plus, Pencil, Check, BookOpen } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NotebookCover, VirtualNotebookCover } from "@/components/NotebookCover";
@@ -39,10 +40,38 @@ const SUBJECT_OPTIONS: {
   bg: string;
   text: string;
 }[] = [
-  { value: "violet", label: "Philosophy", dot: "bg-primary",     ring: "ring-primary/30",     bg: "bg-primary/15",     text: "text-primary"      },
-  { value: "blue",   label: "Biology",    dot: "bg-sky-400",     ring: "ring-sky-400/30",     bg: "bg-sky-500/15",     text: "text-sky-300"      },
-  { value: "green",  label: "Economics",  dot: "bg-emerald-400", ring: "ring-emerald-400/30", bg: "bg-emerald-500/15", text: "text-emerald-300"  },
-  { value: "amber",  label: "History",    dot: "bg-amber-400",   ring: "ring-amber-400/30",   bg: "bg-amber-500/15",   text: "text-amber-300"    },
+  {
+    value: "violet",
+    label: "Philosophy",
+    dot: "bg-primary",
+    ring: "ring-primary/30",
+    bg: "bg-primary/15",
+    text: "text-primary",
+  },
+  {
+    value: "blue",
+    label: "Biology",
+    dot: "bg-sky-400",
+    ring: "ring-sky-400/30",
+    bg: "bg-sky-500/15",
+    text: "text-sky-300",
+  },
+  {
+    value: "green",
+    label: "Economics",
+    dot: "bg-emerald-400",
+    ring: "ring-emerald-400/30",
+    bg: "bg-emerald-500/15",
+    text: "text-emerald-300",
+  },
+  {
+    value: "amber",
+    label: "History",
+    dot: "bg-amber-400",
+    ring: "ring-amber-400/30",
+    bg: "bg-amber-500/15",
+    text: "text-amber-300",
+  },
 ];
 
 // ── NewNoteSheet ───────────────────────────────────────────────────────────
@@ -69,7 +98,9 @@ function NewNoteSheet({
   }, []);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -103,7 +134,12 @@ function NewNoteSheet({
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleConfirm(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleConfirm();
+            }
+          }}
           placeholder="Note name…"
           maxLength={200}
           className="w-full rounded-xl border border-border/60 bg-[var(--surface)] px-3.5 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground/60 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -165,27 +201,30 @@ function NotesPage() {
   const deleteNotebookMutation = useDeleteNotebookMutation();
 
   // Which notebook is open: null = shelf, "all" = all notes, "uncategorized" = orphans, or a uuid
-  const [selectedNotebookId, setSelectedNotebookId] = useState<string | null | "all" | "uncategorized">(null);
+  const [selectedNotebookId, setSelectedNotebookId] = useState<
+    string | null | "all" | "uncategorized"
+  >(null);
   const [openNoteId, setOpenNoteId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [showNewNote, setShowNewNote] = useState(false);
   const [showNewNotebook, setShowNewNotebook] = useState(false);
 
   // Leave edit mode when navigating
-  useEffect(() => { setEditMode(false); }, [selectedNotebookId]);
+  useEffect(() => {
+    setEditMode(false);
+  }, [selectedNotebookId]);
 
   const isLoading = notesLoading || notebooksLoading;
 
   // Compute note counts per notebook
-  const notesForNotebook = (nbId: string) =>
-    allStoredNotes.filter((n) => n.notebookId === nbId);
+  const notesForNotebook = (nbId: string) => allStoredNotes.filter((n) => n.notebookId === nbId);
   const uncategorizedNotes = allStoredNotes.filter((n) => !n.notebookId);
 
   // Notes to show in the current view
   const visibleNotes = (() => {
-    if (selectedNotebookId === "all")          return allStoredNotes;
+    if (selectedNotebookId === "all") return allStoredNotes;
     if (selectedNotebookId === "uncategorized") return uncategorizedNotes;
-    if (selectedNotebookId)                    return notesForNotebook(selectedNotebookId);
+    if (selectedNotebookId) return notesForNotebook(selectedNotebookId);
     return [];
   })();
 
@@ -195,33 +234,53 @@ function NotesPage() {
   const defaultSubjectIndex = allStoredNotes.length % NOTE_SUBJECTS.length;
 
   // ── New note ──────────────────────────────────────────────────────────
-  const openNewNote = () => { setEditMode(false); setShowNewNote(true); };
+  const openNewNote = () => {
+    setEditMode(false);
+    setShowNewNote(true);
+  };
 
   const handleCreateNote = async (title: string, subject: Subject, subjectLabel: string) => {
-    setShowNewNote(false);
     const notebookId =
       selectedNotebookId && selectedNotebookId !== "all" && selectedNotebookId !== "uncategorized"
         ? selectedNotebookId
         : null;
-    const note = await createNoteMutation.mutateAsync({ title, subject, subjectLabel, notebookId });
-    setOpenNoteId(note.id);
+    try {
+      const note = await createNoteMutation.mutateAsync({
+        title,
+        subject,
+        subjectLabel,
+        notebookId,
+      });
+      setShowNewNote(false);
+      setOpenNoteId(note.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't create note. Try again.");
+    }
   };
 
   const handleSkipNote = async () => {
-    setShowNewNote(false);
     const notebookId =
       selectedNotebookId && selectedNotebookId !== "all" && selectedNotebookId !== "uncategorized"
         ? selectedNotebookId
         : null;
-    const note = await createNoteMutation.mutateAsync({ notebookId });
-    setOpenNoteId(note.id);
+    try {
+      const note = await createNoteMutation.mutateAsync({ notebookId });
+      setShowNewNote(false);
+      setOpenNoteId(note.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't create note. Try again.");
+    }
   };
 
   // ── New notebook ──────────────────────────────────────────────────────
   const handleCreateNotebook = async (name: string, emoji: string, color: NotebookColor) => {
-    setShowNewNotebook(false);
-    const nb = await createNotebookMutation.mutateAsync({ name, emoji, color });
-    setSelectedNotebookId(nb.id);
+    try {
+      const nb = await createNotebookMutation.mutateAsync({ name, emoji, color });
+      setShowNewNotebook(false);
+      setSelectedNotebookId(nb.id);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't create notebook. Try again.");
+    }
   };
 
   if (isLoading) {
@@ -247,11 +306,13 @@ function NotesPage() {
   // ── Notebook view (inside a specific notebook / virtual) ──────────────
   if (selectedNotebookId !== null) {
     const heading =
-      selectedNotebookId === "all"           ? "All Notes"
-      : selectedNotebookId === "uncategorized" ? "Uncategorized"
-      : currentNotebook
-        ? `${currentNotebook.emoji} ${currentNotebook.name}`
-        : "Notebook";
+      selectedNotebookId === "all"
+        ? "All Notes"
+        : selectedNotebookId === "uncategorized"
+          ? "Uncategorized"
+          : currentNotebook
+            ? `${currentNotebook.emoji} ${currentNotebook.name}`
+            : "Notebook";
 
     return (
       <AnnotationProvider>
@@ -284,7 +345,17 @@ function NotesPage() {
                       : "border-border/50 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {editMode ? <><Check className="h-3.5 w-3.5" />Done</> : <><Pencil className="h-3.5 w-3.5" />Edit</>}
+                  {editMode ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      Done
+                    </>
+                  ) : (
+                    <>
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </>
+                  )}
                 </button>
               )}
               <button
@@ -308,7 +379,9 @@ function NotesPage() {
                 <Plus className="h-5 w-5" />
               </span>
               <span className="mt-3 text-[14px] font-medium">Add your first note here</span>
-              <span className="mt-1 text-[12.5px] text-muted-foreground">Auto-saved as you type.</span>
+              <span className="mt-1 text-[12.5px] text-muted-foreground">
+                Auto-saved as you type.
+              </span>
             </button>
           ) : (
             <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -329,7 +402,10 @@ function NotesPage() {
           {openNoteId && (
             <NoteEditor
               noteId={openNoteId}
-              onClose={() => { setOpenNoteId(null); setEditMode(false); }}
+              onClose={() => {
+                setOpenNoteId(null);
+                setEditMode(false);
+              }}
             />
           )}
 
@@ -362,7 +438,8 @@ function NotesPage() {
             <div>
               <h1 className="text-[28px] font-semibold tracking-tight">My Notes</h1>
               <p className="text-[12.5px] text-muted-foreground">
-                {notebooks.length} {notebooks.length === 1 ? "notebook" : "notebooks"} · {allStoredNotes.length} {allStoredNotes.length === 1 ? "note" : "notes"}
+                {notebooks.length} {notebooks.length === 1 ? "notebook" : "notebooks"} ·{" "}
+                {allStoredNotes.length} {allStoredNotes.length === 1 ? "note" : "notes"}
               </p>
             </div>
           </div>
@@ -377,11 +454,24 @@ function NotesPage() {
                     : "border-border/50 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {editMode ? <><Check className="h-3.5 w-3.5" />Done</> : <><Pencil className="h-3.5 w-3.5" />Edit</>}
+                {editMode ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" />
+                    Done
+                  </>
+                ) : (
+                  <>
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </>
+                )}
               </button>
             )}
             <button
-              onClick={() => { setEditMode(false); setShowNewNotebook(true); }}
+              onClick={() => {
+                setEditMode(false);
+                setShowNewNotebook(true);
+              }}
               disabled={editMode}
               className="hover-glow flex items-center gap-1.5 rounded-lg bg-gradient-violet px-3.5 py-2 text-[13px] font-medium text-white shadow-glow disabled:opacity-40 disabled:cursor-not-allowed"
             >
