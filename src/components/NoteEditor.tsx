@@ -10,7 +10,7 @@ import { Image } from "@tiptap/extension-image";
 import { AnnotationToolbar } from "@/components/AnnotationToolbar";
 import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
 import { useAnnotationContext } from "@/components/AnnotationContext";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowLeft,
@@ -491,6 +491,17 @@ export function NoteEditor({ noteId, onClose }: Props) {
     });
     setHydrated(true);
   }, [liveNote, hydrated, editor]);
+
+  // Keep the title textarea sized to its content. The old code only did
+  // this on user input, so a note that loaded with a title wrapping to two
+  // lines stayed one row tall and clipped the text top-and-bottom. Runs on
+  // hydration and on every title change.
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title, hydrated]);
 
   // Focus title on open
   useEffect(() => {

@@ -3,6 +3,7 @@ import { Sparkles, Plus, Flame, BookOpen, Timer, ArrowRight, CalendarClock } fro
 import { useState } from "react";
 import { NoteCard, type Note } from "@/components/NoteCard";
 import { NoteEditor } from "@/components/NoteEditor";
+import { AnnotationProvider } from "@/components/AnnotationContext";
 import { daysUntil, formatRelative, formatTestCountdown } from "@/lib/notes/format";
 import {
   useCreateNoteMutation,
@@ -16,7 +17,10 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Nobi — Home" },
-      { name: "description", content: "Your study dashboard. Notes, AI study guides, and progress at a glance." },
+      {
+        name: "description",
+        content: "Your study dashboard. Notes, AI study guides, and progress at a glance.",
+      },
       { property: "og:title", content: "Nobi — Home" },
       { property: "og:description", content: "Your study dashboard." },
     ],
@@ -33,9 +37,7 @@ function Home() {
   const [openId, setOpenId] = useState<string | null>(null);
 
   const firstName =
-    user?.user_metadata?.full_name?.split(" ")?.[0] ??
-    user?.email?.split("@")[0] ??
-    "there";
+    user?.user_metadata?.full_name?.split(" ")?.[0] ?? user?.email?.split("@")[0] ?? "there";
 
   const notes: Note[] = stored.slice(0, 6).map((n) => ({
     id: n.id,
@@ -71,7 +73,8 @@ function Home() {
         aria-hidden
         className="pointer-events-none absolute -top-32 left-1/2 -z-10 h-[420px] w-[820px] -translate-x-1/2 rounded-full opacity-40 blur-3xl"
         style={{
-          background: "radial-gradient(ellipse at center, oklch(0.55 0.24 295 / 0.5), transparent 60%)",
+          background:
+            "radial-gradient(ellipse at center, oklch(0.55 0.24 295 / 0.5), transparent 60%)",
         }}
       />
 
@@ -177,12 +180,13 @@ function Home() {
       )}
 
       <section className="mt-10">
-
         <div className="mb-4 flex items-end justify-between">
           <div>
             <h2 className="text-[18px] font-semibold tracking-tight">Recent notes</h2>
             <p className="text-[12.5px] text-muted-foreground">
-              {stored.length === 0 ? "No notes yet — tap + to start." : "Pick up where you left off."}
+              {stored.length === 0
+                ? "No notes yet — tap + to start."
+                : "Pick up where you left off."}
             </p>
           </div>
           {stored.length > 0 && (
@@ -199,7 +203,9 @@ function Home() {
               <Plus className="h-5 w-5" />
             </span>
             <span className="mt-3 text-[14px] font-medium">Create your first note</span>
-            <span className="mt-1 text-[12.5px] text-muted-foreground">Auto-saved as you type.</span>
+            <span className="mt-1 text-[12.5px] text-muted-foreground">
+              Auto-saved as you type.
+            </span>
           </button>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -246,7 +252,11 @@ function Home() {
         <Plus className="h-6 w-6" strokeWidth={2.4} />
       </button>
 
-      {openId && <NoteEditor noteId={openId} onClose={() => setOpenId(null)} />}
+      {openId && (
+        <AnnotationProvider>
+          <NoteEditor noteId={openId} onClose={() => setOpenId(null)} />
+        </AnnotationProvider>
+      )}
     </div>
   );
 }
