@@ -11,6 +11,7 @@ import { AnnotationToolbar } from "@/components/AnnotationToolbar";
 import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
 import { useAnnotationContext } from "@/components/AnnotationContext";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useServerFn } from "@tanstack/react-start";
 import {
   ArrowLeft,
@@ -582,10 +583,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
   }, []);
 
   if (isLoading || !hydrated) {
-    return (
+    return createPortal(
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
+      </div>,
+      document.body,
     );
   }
 
@@ -762,7 +764,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
           ? "Rendering…"
           : "Import PDF";
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-float-in">
       {/* Ambient glow */}
       <div
@@ -1197,7 +1199,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
