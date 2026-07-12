@@ -10,7 +10,7 @@ import { Image } from "@tiptap/extension-image";
 import { AnnotationToolbar } from "@/components/AnnotationToolbar";
 import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
 import { useAnnotationContext } from "@/components/AnnotationContext";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -439,7 +439,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
     subject: StoredNote["subject"];
     subjectLabel: string;
   } | null>(null);
-  const titleRef = useRef<HTMLTextAreaElement | null>(null);
+  const titleRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // ── Tiptap editor ──────────────────────────────────────────────────────
@@ -492,25 +492,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
     });
     setHydrated(true);
   }, [liveNote, hydrated, editor]);
-
-  // Keep the title textarea sized to its content. The old code only did
-  // this on user input, so a note that loaded with a title wrapping to two
-  // lines stayed one row tall and clipped the text top-and-bottom. Runs on
-  // hydration and on every title change.
-  useLayoutEffect(() => {
-    const el = titleRef.current;
-    if (!el) return;
-    const resize = () => {
-      el.style.height = "auto";
-      el.style.height = `${el.scrollHeight}px`;
-    };
-    resize();
-    // Re-measure when the viewport width changes — a title that fits on
-    // one line at one width can wrap to two at another, and without this
-    // the box would stay one row tall and clip.
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, [title, hydrated]);
 
   // Focus title on open
   useEffect(() => {
@@ -776,20 +757,37 @@ export function NoteEditor({ noteId, onClose }: Props) {
         }}
       />
 
-      {/* ── Header ───────────────────────────────────────────────────── */}
+      {/* ── Header — Back + Docs-style title (top-left) + actions ─────── */}
       <header
-        className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/40 px-4 py-3 backdrop-blur-xl sm:px-6"
+        className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/40 px-3 py-2.5 backdrop-blur-xl sm:px-5"
         style={{ backgroundColor: "color-mix(in oklab, var(--background) 80%, transparent)" }}
       >
         <button
           onClick={onClose}
-          className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/50 bg-[var(--surface)] px-3 py-1.5 text-[13px] font-medium text-foreground"
+          aria-label="Back"
+          className="hover-glow flex shrink-0 items-center gap-1.5 rounded-lg border border-border/50 bg-[var(--surface)] px-2.5 py-1.5 text-[13px] font-medium text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          <span className="hidden sm:inline">Back</span>
         </button>
 
-        <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        {/* Document title — sits top-left, single line, tucked out of the way.
+            Enter moves to the body instead of adding a newline. */}
+        <input
+          ref={titleRef}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              editor?.chain().focus("start").run();
+            }
+          }}
+          placeholder="Untitled note"
+          className="min-w-0 flex-1 truncate bg-transparent text-[15px] font-semibold tracking-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none sm:text-[16px]"
+        />
+
+        <div className="hidden shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground sm:flex">
           {status === "saving" ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -798,12 +796,12 @@ export function NoteEditor({ noteId, onClose }: Props) {
           ) : (
             <>
               <Check className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Saved · {formatRelative(lastSavedAt)}</span>
+              <span>Saved</span>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           {/* Import PDF */}
           <input
             ref={fileInputRef}
@@ -837,28 +835,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
           </button>
         </div>
       </header>
-
-      {/* ── Document title — top-level, above the page (Docs-style) ────── */}
-      <div
-        className="border-b border-border/40 px-4 py-2.5 sm:px-6"
-        style={{ backgroundColor: "color-mix(in oklab, var(--background) 80%, transparent)" }}
-      >
-        <div className="mx-auto w-full max-w-3xl">
-          <textarea
-            ref={titleRef}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Untitled note"
-            rows={1}
-            className="w-full resize-none bg-transparent text-left text-[20px] font-semibold leading-tight tracking-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none sm:text-[23px]"
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = "auto";
-              el.style.height = `${el.scrollHeight}px`;
-            }}
-          />
-        </div>
-      </div>
 
       {/* ── Formatting toolbar ────────────────────────────────────────── */}
       <Toolbar editor={editor} />
