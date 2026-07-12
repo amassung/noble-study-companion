@@ -214,7 +214,9 @@ html.light {
 /* ── Tiptap rich-text editor content styles ──────────────────────────────── */
 .tiptap {
   outline: none;
-  min-height: 55vh;
+  /* The page card provides the full page-height via min-height; the editor
+     itself sizes to its content so pagination can measure it. */
+  min-height: 120px;
   font-size: 16px;
   line-height: 1.75;
   color: var(--foreground);

@@ -64,7 +64,7 @@ import { cn } from "@/lib/utils";
 import { useNotebooks } from "@/lib/notebooks/use-notebooks";
 import { NOTEBOOK_COLORS, PAPER_TEMPLATES, paperClassName } from "@/lib/notebooks/types";
 import { FreeformLayer } from "@/components/FreeformLayer";
-import { useCreateBoxMutation } from "@/lib/boxes/use-boxes";
+import { useBoxes, useCreateBoxMutation } from "@/lib/boxes/use-boxes";
 import { Type as TypeIcon } from "lucide-react";
 
 const FONT_SIZES = [
@@ -83,6 +83,7 @@ const FONT_FAMILIES = [
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
 const MAX_SLIDE_PAGES = 20; // cap on rendered pages per import
+const PAGE_HEIGHT = 1040; // px height of one "page" sheet before it rolls to the next
 
 // Escape text destined for an HTML string so `<`, `&`, quotes in PDF
 // content or titles can't mangle the document structure.
@@ -429,6 +430,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const hasSlides = body.includes("data-slide-key");
   const notebooks = useNotebooks();
   const createBox = useCreateBoxMutation(noteId);
+  const { data: boxes = [] } = useBoxes(noteId);
   const [showMoveSheet, setShowMoveSheet] = useState(false);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
@@ -445,6 +447,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
   } | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  // How many page-sized sheets to show. Grows automatically as content (typed
+  // text or a text box) fills the current page — so a note "becomes pages"
+  // instead of forcing a new note.
+  const [pageCount, setPageCount] = useState(1);
 
   // ── Tiptap editor ──────────────────────────────────────────────────────
   const editor = useEditor({
@@ -515,6 +522,23 @@ export function NoteEditor({ noteId, onClose }: Props) {
       document.body.style.overflow = prev;
     };
   }, []);
+
+  // ── Pagination: grow the page stack as content fills each page ──────────
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom as HTMLElement;
+    const recompute = () => {
+      const editorBottom = dom.offsetTop + dom.scrollHeight;
+      const boxesBottom = boxes.reduce((m, b) => Math.max(m, b.y + 80), 0);
+      const bottom = Math.max(editorBottom, boxesBottom);
+      // +48 breathing room so a nearly-full page rolls to a fresh one.
+      setPageCount(Math.max(1, Math.ceil((bottom + 48) / PAGE_HEIGHT)));
+    };
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(dom);
+    return () => ro.disconnect();
+  }, [editor, boxes]);
 
   // Escape to close (but not when choice modal is open)
   useEffect(() => {
@@ -1021,18 +1045,39 @@ export function NoteEditor({ noteId, onClose }: Props) {
               padding focuses the editor at the end. The title now lives in
               the top bar, so this holds only the note body. */}
           <div
+            ref={cardRef}
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) {
                 e.preventDefault();
                 editor?.chain().focus("end").run();
               }
             }}
+            style={{ minHeight: `${pageCount * PAGE_HEIGHT}px` }}
             className={cn(
-              "relative flex-1 cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
+              "relative cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
               paperCls,
             )}
           >
-            <EditorContent editor={editor} />
+            {/* Page-break separators — a dashed rule + page pill at each
+                page boundary so a long note visibly reads as pages. */}
+            {Array.from({ length: pageCount - 1 }).map((_, i) => (
+              <div
+                key={i}
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 z-[2] flex items-center gap-3 px-4"
+                style={{ top: `${(i + 1) * PAGE_HEIGHT}px`, transform: "translateY(-50%)" }}
+              >
+                <span className="h-0 flex-1 border-t border-dashed border-border" />
+                <span className="rounded-full border border-border/70 bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Page {i + 2}
+                </span>
+                <span className="h-0 flex-1 border-t border-dashed border-border" />
+              </div>
+            ))}
+
+            <div className="relative z-[1]">
+              <EditorContent editor={editor} />
+            </div>
             {/* Free-floating text boxes layer (GoodNotes-style) */}
             <FreeformLayer noteId={noteId} />
           </div>
