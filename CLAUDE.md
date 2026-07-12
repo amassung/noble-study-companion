@@ -14,7 +14,7 @@ AI-powered study app for college students. Students take notes; Nobi turns them 
 - **Runtime/PM**: Bun (`bun.lock`, `bunfig.toml`)
 - **Forms/validation**: react-hook-form + Zod
 - **Notifications**: Sonner toasts
-- **Deploy target**: Cloudflare Workers (see `src/server.ts` h3 handling)
+- **Deploy target**: Vercel (Nitro `vercel` preset, see `vite.config.ts`); `src/server.ts` is a generic fetch-handler wrapper, not Cloudflare-specific
 
 ## Run
 
