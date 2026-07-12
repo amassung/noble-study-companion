@@ -44,6 +44,8 @@ import {
   type StoredNote,
 } from "@/lib/notes/use-notes";
 import { importPdf, condensePdfContent } from "@/lib/pdf/import-pdf.functions";
+import { uploadSlideImages } from "@/lib/storage/upload-slides";
+import { useAuth } from "@/lib/auth/auth-provider";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import { MoveToNotebookSheet } from "@/components/MoveToNotebookSheet";
 import type { StudyGuide } from "@/lib/study-guide.functions";
@@ -61,7 +63,17 @@ const FONT_SIZES = [
 ] as const;
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
-const MAX_SLIDE_PAGES = 20; // cap to keep data-URL sizes reasonable
+const MAX_SLIDE_PAGES = 20; // cap on rendered pages per import
+
+// Escape text destined for an HTML string so `<`, `&`, quotes in PDF
+// content or titles can't mangle the document structure.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type Props = {
@@ -109,7 +121,7 @@ const AnnotatedSlideExtension = Image.extend({
 });
 
 // ── Client-side PDF → images ───────────────────────────────────────────────
-async function renderPdfToImages(file: File): Promise<string[]> {
+async function renderPdfToImages(file: File): Promise<Blob[]> {
   // Lazy-load pdfjs-dist so it doesn't bloat the initial bundle
   const [pdfjs, { default: workerSrc }] = await Promise.all([
     import("pdfjs-dist"),
@@ -122,18 +134,23 @@ async function renderPdfToImages(file: File): Promise<string[]> {
   const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
 
   const pageCount = Math.min(pdf.numPages, MAX_SLIDE_PAGES);
-  const images: string[] = [];
+  const images: Blob[] = [];
 
   for (let i = 1; i <= pageCount; i++) {
     const page = await pdf.getPage(i);
-    // Scale 1.4 — good balance of readability vs. data-URL size
+    // Scale 1.4 — good balance of readability vs. file size
     const viewport = page.getViewport({ scale: 1.4 });
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     const ctx = canvas.getContext("2d")!;
-    await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport }).promise;
-    images.push(canvas.toDataURL("image/jpeg", 0.72));
+    await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport })
+      .promise;
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.72),
+    );
+    if (!blob) throw new Error(`Couldn't render page ${i}`);
+    images.push(blob);
   }
 
   return images;
@@ -180,8 +197,7 @@ function ToolbarDivider() {
 function Toolbar({ editor }: { editor: Editor | null }) {
   if (!editor) return null;
 
-  const activeFontSize =
-    (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
+  const activeFontSize = (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
 
   const handleFontSize = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
@@ -292,6 +308,7 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 // ── Main component ────────────────────────────────────────────────────────
 export function NoteEditor({ noteId, onClose }: Props) {
   const { isLoading } = useNotesList();
+  const { user } = useAuth();
   const allNotes = useNotes();
   const liveNote = allNotes.find((n) => n.id === noteId);
   const updateMutation = useUpdateNoteMutation();
@@ -319,6 +336,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last content actually persisted — lets us skip no-op saves (opening a
+  // note must not bump updated_at) and flush real changes on unmount
+  // without stale-closure state.
+  const lastSavedRef = useRef<string | null>(null);
+  const pendingSaveRef = useRef<{
+    title: string;
+    body: string;
+    subject: StoredNote["subject"];
+    subjectLabel: string;
+  } | null>(null);
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -358,6 +385,13 @@ export function NoteEditor({ noteId, onClose }: Props) {
     );
     editor.commands.setContent(liveNote.body || "", false);
     setBody(liveNote.body || "");
+    lastSavedRef.current = JSON.stringify({
+      title: liveNote.title,
+      body: liveNote.body || "",
+      subject: liveNote.subject,
+      subjectLabel:
+        liveNote.subjectLabel ?? SUBJECTS.find((s) => s.value === liveNote.subject)!.label,
+    });
     setHydrated(true);
   }, [liveNote, hydrated, editor]);
 
@@ -392,25 +426,40 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // ── Debounced save ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!hydrated) return;
+    const snapshot = { title, body, subject, subjectLabel };
+    // Skip no-op saves — hydration (and any rerender) must not bump
+    // updated_at or reorder the notes list.
+    if (JSON.stringify(snapshot) === lastSavedRef.current) return;
+    pendingSaveRef.current = snapshot;
     setStatus("saving");
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
+      pendingSaveRef.current = null;
+      lastSavedRef.current = JSON.stringify(snapshot);
       updateMutation.mutate(
-        { id: noteId, patch: { title, body, subject, subjectLabel } },
+        { id: noteId, patch: snapshot },
         { onSettled: () => setStatus("saved") },
       );
     }, 400);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [title, body, subject, subjectLabel, noteId, hydrated, updateMutation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, body, subject, subjectLabel, noteId, hydrated]);
 
-  // Flush save on unmount
+  // Flush any pending (debounced-but-unsaved) edit on unmount. Reads from
+  // refs — the previous state-based version captured the initial (empty)
+  // render's values and silently never fired.
+  const flushMutationRef = useRef(updateMutation);
+  flushMutationRef.current = updateMutation;
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (hydrated) {
-        updateMutation.mutate({ id: noteId, patch: { title, body, subject, subjectLabel } });
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        lastSavedRef.current = JSON.stringify(pending);
+        flushMutationRef.current.mutate({ id: noteId, patch: pending });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -493,10 +542,13 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // Convert plain text line-breaks to paragraph HTML
     const paragraphs = pendingPdf.body
       .split(/\n{2,}/)
-      .map((p) => `<p>${p.replace(/\n/g, " ").trim()}</p>`)
+      .map((p) => `<p>${escapeHtml(p.replace(/\n/g, " ").trim())}</p>`)
       .filter((p) => p !== "<p></p>")
       .join("");
-    insertIntoEditor(`<h2>📄 ${sourceLabel}</h2>${paragraphs || "<p></p>"}`, sourceLabel);
+    insertIntoEditor(
+      `<h2>📄 ${escapeHtml(sourceLabel)}</h2>${paragraphs || "<p></p>"}`,
+      sourceLabel,
+    );
     toast.success(
       `Imported "${sourceLabel}" · ${pendingPdf.totalPages} page${pendingPdf.totalPages !== 1 ? "s" : ""}`,
     );
@@ -511,7 +563,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
         data: { text: pendingPdf.body, sourceTitle: pendingPdf.title },
       });
       const sourceLabel = pendingPdf.title;
-      insertIntoEditor(`<h2>📄 ${sourceLabel}</h2>${condensed.html}`, sourceLabel);
+      insertIntoEditor(`<h2>📄 ${escapeHtml(sourceLabel)}</h2>${condensed.html}`, sourceLabel);
       toast.success(
         `Condensed "${sourceLabel}" · ${pendingPdf.totalPages} page${pendingPdf.totalPages !== 1 ? "s" : ""}`,
       );
@@ -524,17 +576,38 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
   const handleImportSlides = async () => {
     if (!pendingPdf) return;
+    if (!user) {
+      toast.error("You must be signed in to import slides.");
+      return;
+    }
     setPdfPhase("rendering");
     try {
-      const images = await renderPdfToImages(pendingPdf.file);
+      const blobs = await renderPdfToImages(pendingPdf.file);
       const sourceLabel = pendingPdf.title;
-      const renderedCount = images.length;
+      const renderedCount = blobs.length;
       const truncated = pendingPdf.totalPages > MAX_SLIDE_PAGES;
 
+      // Unique per-import id so a second PDF imported into the same note
+      // can't collide with the first one's slide keys (or storage paths).
+      const importId = crypto.randomUUID().slice(0, 8);
+
+      // Upload rendered pages to Supabase Storage instead of inlining
+      // base64 data URLs — keeps note rows small and list queries fast.
+      const urls = await uploadSlideImages({
+        userId: user.id,
+        noteId,
+        importId,
+        blobs,
+      });
+
       // Build slides HTML: pages stacked vertically, gap handled by CSS margin-bottom on img.
-      // data-slide-key is a stable identifier used by the annotation layer.
-      const slidesHtml = images
-        .map((src, idx) => `<img src="${src}" alt="Slide ${idx + 1}" data-slide-key="nobi-${noteId}-${idx}" />`)
+      // data-slide-key is a stable identifier used by the annotation layer;
+      // it keeps the `nobi-{noteId}-...` shape AnnotatedSlide parses.
+      const slidesHtml = urls
+        .map(
+          (src, idx) =>
+            `<img src="${src}" alt="Slide ${idx + 1}" data-slide-key="nobi-${noteId}-${importId}-${idx}" />`,
+        )
         .join("");
       // Trailing paragraph so the cursor lands somewhere typeable after the last slide
       const trailingP = "<p></p>";
@@ -544,7 +617,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
         : "";
 
       insertIntoEditor(
-        `<h2>📄 ${sourceLabel}</h2>${truncatedNote}${slidesHtml}${trailingP}`,
+        `<h2>📄 ${escapeHtml(sourceLabel)}</h2>${truncatedNote}${slidesHtml}${trailingP}`,
         sourceLabel,
       );
 
@@ -654,9 +727,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
       {hasSlides && <AnnotationToolbar />}
 
       {/* ── Scrollable body ───────────────────────────────────────────── */}
-      <div className={`flex-1 min-h-0 overflow-y-auto${annotationMode !== "none" ? " annotating" : ""}`}>
+      <div
+        className={`flex-1 min-h-0 overflow-y-auto${annotationMode !== "none" ? " annotating" : ""}`}
+      >
         <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-12">
-
           {/* Subject chips */}
           <div className="flex flex-wrap items-center gap-2">
             {SUBJECTS.map((s) => {
@@ -686,7 +760,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {(() => {
               const nb = notebooks.find((n) => n.id === liveNote.notebookId);
-              const c = nb ? (NOTEBOOK_COLORS.find((x) => x.value === nb.color) ?? NOTEBOOK_COLORS[0]) : null;
+              const c = nb
+                ? (NOTEBOOK_COLORS.find((x) => x.value === nb.color) ?? NOTEBOOK_COLORS[0])
+                : null;
               return (
                 <button
                   onClick={() => setShowMoveSheet(true)}
@@ -698,9 +774,15 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   )}
                 >
                   {nb ? (
-                    <><span className="text-sm leading-none">{nb.emoji}</span>{nb.name}</>
+                    <>
+                      <span className="text-sm leading-none">{nb.emoji}</span>
+                      {nb.name}
+                    </>
                   ) : (
-                    <><BookOpen className="h-3.5 w-3.5" />Add to notebook</>
+                    <>
+                      <BookOpen className="h-3.5 w-3.5" />
+                      Add to notebook
+                    </>
                   )}
                 </button>
               );
@@ -729,9 +811,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 <Calendar
                   mode="single"
                   selected={liveNote.testDate ? new Date(liveNote.testDate) : undefined}
-                  onSelect={(d) =>
-                    setTestDateMutation.mutate({ id: noteId, date: d ?? null })
-                  }
+                  onSelect={(d) => setTestDateMutation.mutate({ id: noteId, date: d ?? null })}
                   initialFocus
                   className={cn("p-3 pointer-events-auto")}
                 />
@@ -882,7 +962,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 <FileUp className="h-4.5 w-4.5" />
               </span>
               <div className="min-w-0">
-                <h3 className="text-[15px] font-semibold tracking-tight">How do you want to import?</h3>
+                <h3 className="text-[15px] font-semibold tracking-tight">
+                  How do you want to import?
+                </h3>
                 <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
                   {pendingPdf.title}
                   {pendingPdf.totalPages > 0

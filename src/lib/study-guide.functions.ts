@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireUser } from "@/lib/supabase/require-user.server";
 
 export type StudyGuide = {
   title: string;
@@ -46,19 +47,19 @@ function tryParse(raw: string): StudyGuide | null {
 }
 
 export const generateStudyGuide = createServerFn({ method: "POST" })
-  .inputValidator(
-    (input: { title: string; body: string; subjectLabel?: string }) => {
-      if (!input || typeof input.body !== "string") {
-        throw new Error("Invalid input");
-      }
-      return {
-        title: (input.title ?? "").slice(0, 300),
-        body: input.body.slice(0, 12_000),
-        subjectLabel: (input.subjectLabel ?? "").slice(0, 80),
-      };
-    },
-  )
+  .inputValidator((input: { title: string; body: string; subjectLabel?: string }) => {
+    if (!input || typeof input.body !== "string") {
+      throw new Error("Invalid input");
+    }
+    return {
+      title: (input.title ?? "").slice(0, 300),
+      body: input.body.slice(0, 12_000),
+      subjectLabel: (input.subjectLabel ?? "").slice(0, 80),
+    };
+  })
   .handler(async ({ data }): Promise<StudyGuide> => {
+    await requireUser();
+
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
 
@@ -105,9 +106,7 @@ export const generateStudyGuide = createServerFn({ method: "POST" })
       content?: { type: string; text?: string }[];
     };
     const content =
-      json.content?.find((block) => block.type === "text")?.text ??
-      json.content?.[0]?.text ??
-      "";
+      json.content?.find((block) => block.type === "text")?.text ?? json.content?.[0]?.text ?? "";
     const parsed = tryParse(content);
     if (!parsed) {
       console.error("AI returned non-JSON content", content.slice(0, 500));
