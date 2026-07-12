@@ -63,6 +63,9 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { useNotebooks } from "@/lib/notebooks/use-notebooks";
 import { NOTEBOOK_COLORS, PAPER_TEMPLATES, paperClassName } from "@/lib/notebooks/types";
+import { FreeformLayer } from "@/components/FreeformLayer";
+import { useCreateBoxMutation } from "@/lib/boxes/use-boxes";
+import { Type as TypeIcon } from "lucide-react";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -425,6 +428,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const { mode: annotationMode } = useAnnotationContext();
   const hasSlides = body.includes("data-slide-key");
   const notebooks = useNotebooks();
+  const createBox = useCreateBoxMutation(noteId);
   const [showMoveSheet, setShowMoveSheet] = useState(false);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
@@ -954,6 +958,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
               </>
             ) : null}
 
+            {/* Add a free-floating text box */}
+            <button
+              onClick={() => createBox.mutate(undefined)}
+              className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              title="Add a movable text box"
+            >
+              <TypeIcon className="h-3.5 w-3.5" />
+              Text box
+            </button>
+
             {/* Paper switcher — change this note's paper on the fly */}
             <Popover>
               <PopoverTrigger asChild>
@@ -1014,11 +1028,13 @@ export function NoteEditor({ noteId, onClose }: Props) {
               }
             }}
             className={cn(
-              "flex-1 cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
+              "relative flex-1 cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
               paperCls,
             )}
           >
             <EditorContent editor={editor} />
+            {/* Free-floating text boxes layer (GoodNotes-style) */}
+            <FreeformLayer noteId={noteId} />
           </div>
 
           {/* Generate Study Guide */}

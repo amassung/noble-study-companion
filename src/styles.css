@@ -426,8 +426,18 @@ html.light .tiptap img {
   background-position: 11px 11px;
 }
 
+/* Freeform text boxes inherit the page's ink so they read on any paper */
+.nobi-box-text {
+  color: var(--foreground);
+  caret-color: var(--primary);
+}
+
 /* Dark ink for text sitting on the light paper templates */
 :is(.paper-ruled, .paper-ruled-wide, .paper-dotted, .paper-grid) .tiptap {
+  color: var(--paper-ink);
+  caret-color: var(--paper-ink);
+}
+:is(.paper-ruled, .paper-ruled-wide, .paper-dotted, .paper-grid) .nobi-box-text {
   color: var(--paper-ink);
   caret-color: var(--paper-ink);
 }
