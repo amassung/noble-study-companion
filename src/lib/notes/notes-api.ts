@@ -1,5 +1,6 @@
 import type { Subject } from "@/components/NoteCard";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import type { PaperTemplate } from "@/lib/notebooks/types";
 import type { StudyGuide } from "@/lib/study-guide.functions";
 import { NOTE_SUBJECTS, type SavedGuide, type StoredNote } from "./types";
 
@@ -18,6 +19,7 @@ type NoteRow = {
   subject_label: string | null;
   test_date: string | null;
   notebook_id: string | null;
+  paper: string | null;
   created_at: string;
   updated_at: string;
   study_guides?: GuideRow[] | null;
@@ -41,25 +43,20 @@ function rowToStoredNote(row: NoteRow): StoredNote {
     body: row.body,
     subject: row.subject as Subject,
     subjectLabel: row.subject_label ?? undefined,
-    testDate:   row.test_date ? new Date(row.test_date).getTime() : null,
+    testDate: row.test_date ? new Date(row.test_date).getTime() : null,
     notebookId: row.notebook_id ?? null,
-    createdAt:  new Date(row.created_at).getTime(),
-    updatedAt:  new Date(row.updated_at).getTime(),
+    paper: (row.paper as PaperTemplate) ?? null,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
     guides,
   };
 }
 
+// Select all note columns (so newly-added columns like `paper` are picked up
+// without editing this list — and, crucially, without erroring against a DB
+// where the migration hasn't been applied yet) plus the embedded guides.
 const NOTE_SELECT = `
-  id,
-  user_id,
-  title,
-  body,
-  subject,
-  subject_label,
-  test_date,
-  notebook_id,
-  created_at,
-  updated_at,
+  *,
   study_guides (
     id,
     guide,
@@ -117,12 +114,12 @@ export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
   const { data, error } = await supabase
     .from("notes")
     .insert({
-      user_id:     userId,
-      title:       opts?.title       ?? "",
-      body:        opts?.body        ?? "",
+      user_id: userId,
+      title: opts?.title ?? "",
+      body: opts?.body ?? "",
       subject,
       subject_label: opts?.subjectLabel ?? null,
-      notebook_id:   opts?.notebookId   ?? null,
+      notebook_id: opts?.notebookId ?? null,
     })
     .select(NOTE_SELECT)
     .single();
@@ -132,7 +129,10 @@ export async function createNote(opts?: CreateNoteOpts): Promise<StoredNote> {
 }
 
 export type NotePatch = Partial<
-  Pick<StoredNote, "title" | "body" | "subject" | "subjectLabel" | "testDate" | "notebookId">
+  Pick<
+    StoredNote,
+    "title" | "body" | "subject" | "subjectLabel" | "testDate" | "notebookId" | "paper"
+  >
 >;
 
 export async function updateNote(id: string, patch: NotePatch): Promise<void> {
@@ -151,6 +151,9 @@ export async function updateNote(id: string, patch: NotePatch): Promise<void> {
   }
   if (patch.notebookId !== undefined) {
     row.notebook_id = patch.notebookId ?? null;
+  }
+  if (patch.paper !== undefined) {
+    row.paper = patch.paper ?? null;
   }
 
   const { error } = await supabase.from("notes").update(row).eq("id", id).eq("user_id", userId);

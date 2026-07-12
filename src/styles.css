@@ -444,6 +444,27 @@ html.light .tiptap img {
   opacity: 1;
 }
 
+/* Align text rows to the ruling: the text line-height matches the rule
+   spacing so each line of typing lands on its own ruled row, and a top
+   padding of one row seats the first line (and placeholder) on the first
+   line instead of floating above it. */
+.paper-ruled .tiptap,
+.paper-ruled .tiptap p,
+.paper-ruled .tiptap li {
+  line-height: 30px;
+}
+.paper-ruled .tiptap {
+  padding-top: 6px;
+}
+.paper-ruled-wide .tiptap,
+.paper-ruled-wide .tiptap p,
+.paper-ruled-wide .tiptap li {
+  line-height: 40px;
+}
+.paper-ruled-wide .tiptap {
+  padding-top: 8px;
+}
+
 /* ── Edit-mode card wiggle (iOS-style) ───────────────────────────────────── */
 @keyframes note-wiggle {
   0% {

@@ -62,7 +62,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { useNotebooks } from "@/lib/notebooks/use-notebooks";
-import { NOTEBOOK_COLORS, paperClassName } from "@/lib/notebooks/types";
+import { NOTEBOOK_COLORS, PAPER_TEMPLATES, paperClassName } from "@/lib/notebooks/types";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -745,8 +745,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
           ? "Rendering…"
           : "Import PDF";
 
-  // Paper template comes from the note's notebook (notes inherit it).
-  const paperCls = paperClassName(notebooks.find((n) => n.id === liveNote.notebookId)?.paper);
+  // Effective paper: a per-note override wins, else the notebook's paper,
+  // else blank. The in-editor switcher writes the per-note override.
+  const effectivePaper =
+    liveNote.paper ?? notebooks.find((n) => n.id === liveNote.notebookId)?.paper ?? "blank";
+  const paperCls = paperClassName(effectivePaper);
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-float-in">
@@ -950,6 +953,51 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </button>
               </>
             ) : null}
+
+            {/* Paper switcher — change this note's paper on the fly */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  title="Paper style"
+                >
+                  <span
+                    className={cn(
+                      "h-3.5 w-3 rounded-[3px] border border-border/70 bg-[var(--paper)]",
+                      paperCls,
+                    )}
+                  />
+                  {PAPER_TEMPLATES.find((p) => p.value === effectivePaper)?.label ?? "Paper"}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2" align="start">
+                <div className="flex gap-2">
+                  {PAPER_TEMPLATES.map((p) => (
+                    <button
+                      key={p.value}
+                      onClick={() =>
+                        updateMutation.mutate({ id: noteId, patch: { paper: p.value } })
+                      }
+                      className={cn(
+                        "flex flex-col items-center gap-1",
+                        effectivePaper === p.value ? "text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "h-14 w-10 rounded-md border bg-[var(--paper)]",
+                          p.className,
+                          effectivePaper === p.value
+                            ? "border-primary ring-2 ring-inset ring-primary/40"
+                            : "border-border/60 hover:border-primary/40",
+                        )}
+                      />
+                      <span className="text-[10px] font-medium">{p.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* ── The page ─────────────────────────────────────────────────
