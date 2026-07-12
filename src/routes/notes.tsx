@@ -22,7 +22,7 @@ import {
 } from "@/lib/notebooks/use-notebooks";
 import { NOTE_SUBJECTS } from "@/lib/notes/types";
 import type { Subject } from "@/components/NoteCard";
-import type { NotebookColor } from "@/lib/notebooks/types";
+import type { NotebookColor, PaperTemplate } from "@/lib/notebooks/types";
 import { NOTEBOOK_COLORS, NOTEBOOK_EMOJIS } from "@/lib/notebooks/types";
 import { cn } from "@/lib/utils";
 
@@ -273,9 +273,14 @@ function NotesPage() {
   };
 
   // ── New notebook ──────────────────────────────────────────────────────
-  const handleCreateNotebook = async (name: string, emoji: string, color: NotebookColor) => {
+  const handleCreateNotebook = async (
+    name: string,
+    emoji: string,
+    color: NotebookColor,
+    paper: PaperTemplate,
+  ) => {
     try {
-      const nb = await createNotebookMutation.mutateAsync({ name, emoji, color });
+      const nb = await createNotebookMutation.mutateAsync({ name, emoji, color, paper });
       setShowNewNotebook(false);
       setSelectedNotebookId(nb.id);
     } catch (err) {

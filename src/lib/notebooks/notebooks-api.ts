@@ -2,6 +2,7 @@ import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   type NotebookColor,
   type NotebookRow,
+  type PaperTemplate,
   type StoredNotebook,
   rowToStoredNotebook,
 } from "./types";
@@ -21,23 +22,28 @@ export interface CreateNotebookOpts {
   name: string;
   emoji?: string;
   color?: NotebookColor;
+  paper?: PaperTemplate;
   sortOrder?: number;
 }
 
 export async function createNotebook(opts: CreateNotebookOpts): Promise<StoredNotebook> {
   const supabase = getSupabaseClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
   if (authError) throw authError;
   if (!user) throw new Error("Not signed in");
 
   const { data, error } = await supabase
     .from("notebooks")
     .insert({
-      user_id:    user.id,
-      name:       opts.name,
-      emoji:      opts.emoji      ?? "📓",
-      color:      opts.color      ?? "violet",
-      sort_order: opts.sortOrder  ?? 0,
+      user_id: user.id,
+      name: opts.name,
+      emoji: opts.emoji ?? "📓",
+      color: opts.color ?? "violet",
+      paper: opts.paper ?? "blank",
+      sort_order: opts.sortOrder ?? 0,
     })
     .select("*")
     .single();
@@ -45,19 +51,25 @@ export async function createNotebook(opts: CreateNotebookOpts): Promise<StoredNo
   return rowToStoredNotebook(data as NotebookRow);
 }
 
-export type NotebookPatch = Partial<Pick<StoredNotebook, "name" | "emoji" | "color" | "sortOrder">>;
+export type NotebookPatch = Partial<
+  Pick<StoredNotebook, "name" | "emoji" | "color" | "paper" | "sortOrder">
+>;
 
 export async function updateNotebook(id: string, patch: NotebookPatch): Promise<void> {
   const supabase = getSupabaseClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
   if (authError) throw authError;
   if (!user) throw new Error("Not signed in");
 
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (patch.name       !== undefined) row.name       = patch.name;
-  if (patch.emoji      !== undefined) row.emoji      = patch.emoji;
-  if (patch.color      !== undefined) row.color      = patch.color;
-  if (patch.sortOrder  !== undefined) row.sort_order = patch.sortOrder;
+  if (patch.name !== undefined) row.name = patch.name;
+  if (patch.emoji !== undefined) row.emoji = patch.emoji;
+  if (patch.color !== undefined) row.color = patch.color;
+  if (patch.paper !== undefined) row.paper = patch.paper;
+  if (patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
 
   const { error } = await supabase
     .from("notebooks")
@@ -69,14 +81,13 @@ export async function updateNotebook(id: string, patch: NotebookPatch): Promise<
 
 export async function deleteNotebook(id: string): Promise<void> {
   const supabase = getSupabaseClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
   if (authError) throw authError;
   if (!user) throw new Error("Not signed in");
 
-  const { error } = await supabase
-    .from("notebooks")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", user.id);
+  const { error } = await supabase.from("notebooks").delete().eq("id", id).eq("user_id", user.id);
   if (error) throw error;
 }

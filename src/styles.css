@@ -52,6 +52,8 @@
   /* The note "sheet" — noticeably lighter than the desk so its edges
      are clearly visible against the dark canvas. */
   --paper: oklch(0.27 0 0);
+  /* Ruling / grid line color drawn on the paper. */
+  --paper-line: oklch(1 0 0 / 0.09);
 
   --card: oklch(0.22 0 0);
   --card-foreground: oklch(0.95 0.01 95);
@@ -98,6 +100,7 @@ html.light {
   --sidebar-bg: oklch(0.96 0.003 95);
   --canvas: oklch(0.9 0.004 95);
   --paper: oklch(1 0 0);
+  --paper-line: oklch(0 0 0 / 0.1);
 
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.15 0.005 95);
@@ -336,6 +339,53 @@ html.light .tiptap img {
 /* Re-enable pointer events on annotation overlays inside the editor */
 .annotating .annotation-overlay {
   pointer-events: all;
+}
+
+/* ── Paper templates (GoodNotes-style ruling behind note content) ─────────── */
+/* Applied to the editor "page" card. background-image layers over the card's
+   --paper background-color. Line color adapts to light/dark via --paper-line. */
+.paper-blank {
+  background-image: none;
+}
+.paper-ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 31px,
+    var(--paper-line) 31px,
+    var(--paper-line) 32px
+  );
+}
+.paper-ruled-wide {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 39px,
+    var(--paper-line) 39px,
+    var(--paper-line) 40px
+  );
+}
+.paper-grid {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 27px,
+      var(--paper-line) 27px,
+      var(--paper-line) 28px
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent 27px,
+      var(--paper-line) 27px,
+      var(--paper-line) 28px
+    );
+}
+.paper-dotted {
+  background-image: radial-gradient(var(--paper-line) 1.4px, transparent 1.4px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
 }
 
 /* ── Edit-mode card wiggle (iOS-style) ───────────────────────────────────── */

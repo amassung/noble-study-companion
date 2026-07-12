@@ -62,7 +62,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { useNotebooks } from "@/lib/notebooks/use-notebooks";
-import { NOTEBOOK_COLORS } from "@/lib/notebooks/types";
+import { NOTEBOOK_COLORS, paperClassName } from "@/lib/notebooks/types";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -745,6 +745,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
           ? "Rendering…"
           : "Import PDF";
 
+  // Paper template comes from the note's notebook (notes inherit it).
+  const paperCls = paperClassName(notebooks.find((n) => n.id === liveNote.notebookId)?.paper);
+
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-float-in">
       {/* Ambient glow */}
@@ -962,7 +965,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 editor?.chain().focus("end").run();
               }
             }}
-            className="flex-1 cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12"
+            className={cn(
+              "flex-1 cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
+              paperCls,
+            )}
           >
             <EditorContent editor={editor} />
           </div>

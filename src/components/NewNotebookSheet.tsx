@@ -4,18 +4,21 @@ import { cn } from "@/lib/utils";
 import {
   NOTEBOOK_COLORS,
   NOTEBOOK_EMOJIS,
+  PAPER_TEMPLATES,
   type NotebookColor,
+  type PaperTemplate,
 } from "@/lib/notebooks/types";
 
 type Props = {
-  onCreate: (name: string, emoji: string, color: NotebookColor) => void;
+  onCreate: (name: string, emoji: string, color: NotebookColor, paper: PaperTemplate) => void;
   onClose: () => void;
 };
 
 export function NewNotebookSheet({ onCreate, onClose }: Props) {
-  const [name,  setName]  = useState("");
+  const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("📓");
   const [color, setColor] = useState<NotebookColor>("violet");
+  const [paper, setPaper] = useState<PaperTemplate>("blank");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Autofocus
@@ -26,7 +29,9 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
 
   // Escape closes
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -34,7 +39,7 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
   const handleConfirm = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    onCreate(trimmed, emoji, color);
+    onCreate(trimmed, emoji, color, paper);
   };
 
   const c = NOTEBOOK_COLORS.find((x) => x.value === color) ?? NOTEBOOK_COLORS[0];
@@ -60,7 +65,13 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
         </div>
 
         {/* Preview strip */}
-        <div className={cn("mb-4 flex items-center gap-3 rounded-xl border px-3.5 py-2.5 ring-1 ring-inset", c.bg, c.ring)}>
+        <div
+          className={cn(
+            "mb-4 flex items-center gap-3 rounded-xl border px-3.5 py-2.5 ring-1 ring-inset",
+            c.bg,
+            c.ring,
+          )}
+        >
           <span className="text-2xl leading-none">{emoji}</span>
           <span className={cn("text-[14px] font-semibold", c.text)}>
             {name.trim() || "Notebook name…"}
@@ -73,14 +84,21 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleConfirm(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleConfirm();
+            }
+          }}
           placeholder="Notebook name…"
           maxLength={60}
           className="w-full rounded-xl border border-border/60 bg-[var(--surface)] px-3.5 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground/60 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
         />
 
         {/* Emoji picker */}
-        <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Emoji</p>
+        <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Emoji
+        </p>
         <div className="flex flex-wrap gap-1.5">
           {NOTEBOOK_EMOJIS.map((e) => (
             <button
@@ -100,7 +118,9 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
         </div>
 
         {/* Color picker */}
-        <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Color</p>
+        <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Color
+        </p>
         <div className="flex flex-wrap gap-2">
           {NOTEBOOK_COLORS.map((nc) => (
             <button
@@ -117,6 +137,35 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
             >
               <span className={cn("h-2 w-2 rounded-full bg-gradient-to-br", nc.bar)} />
               {nc.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Paper template picker */}
+        <p className="mb-2 mt-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Paper
+        </p>
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {PAPER_TEMPLATES.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => setPaper(p.value)}
+              className={cn(
+                "flex shrink-0 flex-col items-center gap-1.5",
+                paper === p.value ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              <span
+                className={cn(
+                  "h-16 w-12 rounded-md border bg-[var(--paper)] transition-all",
+                  p.className,
+                  paper === p.value
+                    ? "border-primary ring-2 ring-inset ring-primary/40"
+                    : "border-border/60 hover:border-primary/40",
+                )}
+              />
+              <span className="text-[10.5px] font-medium">{p.label}</span>
             </button>
           ))}
         </div>
