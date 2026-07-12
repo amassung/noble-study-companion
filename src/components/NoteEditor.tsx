@@ -3,6 +3,9 @@ import { StarterKit } from "@tiptap/starter-kit";
 import { Underline } from "@tiptap/extension-underline";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextStyle, FontSize } from "@tiptap/extension-text-style";
+import { FontFamily } from "@tiptap/extension-font-family";
+import { TextAlign } from "@tiptap/extension-text-align";
+import { Placeholder } from "@tiptap/extension-placeholder";
 import { Image } from "@tiptap/extension-image";
 import { AnnotationToolbar } from "@/components/AnnotationToolbar";
 import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
@@ -20,12 +23,17 @@ import {
   Bold,
   Italic,
   Underline as UnderlineIcon,
+  Strikethrough,
   List,
   ListOrdered,
   Highlighter,
   Heading1,
   Heading2,
   Heading3,
+  Quote,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
   FileUp,
   FileText,
   GalleryHorizontal,
@@ -60,6 +68,13 @@ const FONT_SIZES = [
   { label: "Normal", value: "" },
   { label: "Large", value: "1.25em" },
   { label: "Huge", value: "1.6em" },
+] as const;
+
+const FONT_FAMILIES = [
+  { label: "Default", value: "" },
+  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Mono", value: "'SF Mono', ui-monospace, Menlo, monospace" },
+  { label: "Rounded", value: "'Avenir Next', system-ui, sans-serif" },
 ] as const;
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
@@ -179,10 +194,10 @@ function ToolbarBtn({
       aria-label={title}
       aria-pressed={active}
       className={cn(
-        "flex min-h-[36px] min-w-[36px] items-center justify-center rounded-md text-[13px] font-semibold transition-colors",
+        "flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-[13px] font-semibold transition-colors",
         active
           ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/25"
-          : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+          : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
       )}
     >
       {children}
@@ -191,16 +206,49 @@ function ToolbarBtn({
 }
 
 function ToolbarDivider() {
-  return <span className="mx-0.5 h-5 w-px shrink-0 rounded-full bg-border/60" />;
+  return <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />;
+}
+
+function ToolbarSelect({
+  value,
+  onChange,
+  title,
+  options,
+  minWidth = "6.5rem",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  title: string;
+  options: readonly { label: string; value: string }[];
+  minWidth?: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onMouseDown={(e) => e.stopPropagation()}
+      title={title}
+      aria-label={title}
+      style={{ minWidth }}
+      className="h-[34px] cursor-pointer rounded-lg border border-border/60 bg-[var(--surface)] px-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+    >
+      {options.map((o) => (
+        <option key={o.label} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 function Toolbar({ editor }: { editor: Editor | null }) {
   if (!editor) return null;
 
   const activeFontSize = (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
+  const activeFontFamily =
+    (editor.getAttributes("textStyle").fontFamily as string | undefined) ?? "";
 
-  const handleFontSize = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
+  const handleFontSize = (val: string) => {
     if (!val) {
       editor.chain().focus().unsetFontSize().run();
     } else {
@@ -208,11 +256,36 @@ function Toolbar({ editor }: { editor: Editor | null }) {
     }
   };
 
+  const handleFontFamily = (val: string) => {
+    if (!val) {
+      editor.chain().focus().unsetFontFamily().run();
+    } else {
+      editor.chain().focus().setFontFamily(val).run();
+    }
+  };
+
   return (
     <div
-      className="sticky top-[57px] z-10 flex flex-wrap items-center gap-0.5 border-b border-border/40 bg-[var(--surface-elevated)]/95 px-3 py-1.5 backdrop-blur-sm sm:px-5"
+      className="sticky top-[57px] z-10 flex flex-wrap items-center gap-1 border-b border-border/40 bg-[var(--surface-elevated)]/95 px-3 py-2 shadow-sm backdrop-blur-sm sm:px-5"
       onMouseDown={(e) => e.preventDefault()}
     >
+      <ToolbarSelect
+        value={activeFontFamily}
+        onChange={handleFontFamily}
+        title="Font"
+        options={FONT_FAMILIES}
+        minWidth="6rem"
+      />
+      <ToolbarSelect
+        value={activeFontSize}
+        onChange={handleFontSize}
+        title="Font size"
+        options={FONT_SIZES}
+        minWidth="5rem"
+      />
+
+      <ToolbarDivider />
+
       <ToolbarBtn
         active={editor.isActive("bold")}
         onClick={() => editor.chain().focus().toggleBold().run()}
@@ -233,6 +306,20 @@ function Toolbar({ editor }: { editor: Editor | null }) {
         title="Underline"
       >
         <UnderlineIcon className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive("strike")}
+        onClick={() => editor.chain().focus().toggleStrike().run()}
+        title="Strikethrough"
+      >
+        <Strikethrough className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive("highlight")}
+        onClick={() => editor.chain().focus().toggleHighlight().run()}
+        title="Highlight"
+      >
+        <Highlighter className="h-3.5 w-3.5" strokeWidth={2} />
       </ToolbarBtn>
 
       <ToolbarDivider />
@@ -275,32 +362,37 @@ function Toolbar({ editor }: { editor: Editor | null }) {
       >
         <ListOrdered className="h-4 w-4" strokeWidth={2} />
       </ToolbarBtn>
-
-      <ToolbarDivider />
-
       <ToolbarBtn
-        active={editor.isActive("highlight")}
-        onClick={() => editor.chain().focus().toggleHighlight().run()}
-        title="Highlight"
+        active={editor.isActive("blockquote")}
+        onClick={() => editor.chain().focus().toggleBlockquote().run()}
+        title="Quote"
       >
-        <Highlighter className="h-3.5 w-3.5" strokeWidth={2} />
+        <Quote className="h-4 w-4" strokeWidth={2} />
       </ToolbarBtn>
 
       <ToolbarDivider />
 
-      <select
-        value={activeFontSize}
-        onChange={handleFontSize}
-        title="Font size"
-        aria-label="Font size"
-        className="h-[36px] cursor-pointer rounded-md border border-border/60 bg-[var(--surface)] px-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus:outline-none"
+      <ToolbarBtn
+        active={editor.isActive({ textAlign: "left" })}
+        onClick={() => editor.chain().focus().setTextAlign("left").run()}
+        title="Align left"
       >
-        {FONT_SIZES.map((s) => (
-          <option key={s.label} value={s.value}>
-            {s.label}
-          </option>
-        ))}
-      </select>
+        <AlignLeft className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive({ textAlign: "center" })}
+        onClick={() => editor.chain().focus().setTextAlign("center").run()}
+        title="Align center"
+      >
+        <AlignCenter className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
+      <ToolbarBtn
+        active={editor.isActive({ textAlign: "right" })}
+        onClick={() => editor.chain().focus().setTextAlign("right").run()}
+        title="Align right"
+      >
+        <AlignRight className="h-4 w-4" strokeWidth={2} />
+      </ToolbarBtn>
     </div>
   );
 }
@@ -357,13 +449,18 @@ export function NoteEditor({ noteId, onClose }: Props) {
       Highlight,
       TextStyle,
       FontSize,
+      FontFamily,
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+      // Replaces the old float-based ::before CSS placeholder hack, which
+      // could visually overlap the next line when the doc had more than
+      // one empty block. This renders per-node via a decoration instead.
+      Placeholder.configure({ placeholder: "Start writing your notes here…" }),
       AnnotatedSlideExtension.configure({ allowBase64: true, inline: false }),
     ],
     content: "",
     editorProps: {
       attributes: {
         class: "tiptap",
-        "data-placeholder": "Start writing your notes here…",
       },
     },
     onUpdate: ({ editor: e }) => {

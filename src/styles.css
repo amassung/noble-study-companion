@@ -41,24 +41,24 @@
 
 :root {
   /* Dark only — values per Nobi brief */
-  --background: oklch(0.18 0 0);            /* #111111 */
-  --foreground: oklch(0.95 0.01 95);        /* #F2F0E8 warm white */
-  --surface: oklch(0.22 0 0);               /* #1A1A1A */
-  --surface-elevated: oklch(0.26 0 0);      /* #222222 */
-  --sidebar-bg: oklch(0.21 0 0);            /* #161616 */
+  --background: oklch(0.18 0 0); /* #111111 */
+  --foreground: oklch(0.95 0.01 95); /* #F2F0E8 warm white */
+  --surface: oklch(0.22 0 0); /* #1A1A1A */
+  --surface-elevated: oklch(0.26 0 0); /* #222222 */
+  --sidebar-bg: oklch(0.21 0 0); /* #161616 */
 
   --card: oklch(0.22 0 0);
   --card-foreground: oklch(0.95 0.01 95);
   --popover: oklch(0.22 0 0);
   --popover-foreground: oklch(0.95 0.01 95);
 
-  --primary: oklch(0.55 0.24 295);          /* #7C3AED */
+  --primary: oklch(0.55 0.24 295); /* #7C3AED */
   --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.63 0.24 300);        /* #A855F7 */
+  --secondary: oklch(0.63 0.24 300); /* #A855F7 */
   --secondary-foreground: oklch(0.98 0 0);
 
   --muted: oklch(0.26 0 0);
-  --muted-foreground: oklch(0.62 0 0);      /* #8A8A8A */
+  --muted-foreground: oklch(0.62 0 0); /* #8A8A8A */
   --accent: oklch(0.55 0.24 295);
   --accent-foreground: oklch(0.98 0 0);
 
@@ -74,7 +74,11 @@
   --radius: 12px;
 
   --gradient-violet: linear-gradient(135deg, oklch(0.55 0.24 295), oklch(0.63 0.24 300));
-  --gradient-violet-soft: linear-gradient(135deg, oklch(0.55 0.24 295 / 0.18), oklch(0.63 0.24 300 / 0.08));
+  --gradient-violet-soft: linear-gradient(
+    135deg,
+    oklch(0.55 0.24 295 / 0.18),
+    oklch(0.63 0.24 300 / 0.08)
+  );
   --shadow-glow: 0 0 24px 0 oklch(0.55 0.24 295 / 0.35);
   --shadow-glow-lg: 0 8px 40px -4px oklch(0.55 0.24 295 / 0.55);
   --shadow-card: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -12px oklch(0 0 0 / 0.6);
@@ -119,7 +123,9 @@ html.light {
   * {
     border-color: var(--color-border);
   }
-  html, body, #root {
+  html,
+  body,
+  #root {
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
@@ -144,7 +150,10 @@ html.light {
 }
 
 @utility hover-glow {
-  transition: box-shadow 200ms ease, transform 200ms ease, border-color 200ms ease;
+  transition:
+    box-shadow 200ms ease,
+    transform 200ms ease,
+    border-color 200ms ease;
 }
 .hover-glow:hover {
   box-shadow: var(--shadow-glow);
@@ -152,20 +161,43 @@ html.light {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 oklch(0.55 0.24 295 / 0.55), var(--shadow-glow-lg); }
-  50% { box-shadow: 0 0 0 14px oklch(0.55 0.24 295 / 0), var(--shadow-glow-lg); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 oklch(0.55 0.24 295 / 0.55),
+      var(--shadow-glow-lg);
+  }
+  50% {
+    box-shadow:
+      0 0 0 14px oklch(0.55 0.24 295 / 0),
+      var(--shadow-glow-lg);
+  }
 }
-.animate-pulse-glow { animation: pulse-glow 2.4s ease-in-out infinite; }
+.animate-pulse-glow {
+  animation: pulse-glow 2.4s ease-in-out infinite;
+}
 
 @keyframes float-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.animate-float-in { animation: float-in 0.5s ease-out both; }
+.animate-float-in {
+  animation: float-in 0.5s ease-out both;
+}
 
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
 }
 
 /* ── Tiptap rich-text editor content styles ──────────────────────────────── */
@@ -177,15 +209,33 @@ html.light {
   color: var(--foreground);
   caret-color: var(--primary);
 }
-.tiptap > * + * { margin-top: 0.4em; }
-.tiptap p { margin: 0; }
-.tiptap p.is-editor-empty:first-child::before {
+.tiptap > * + * {
+  margin-top: 0.4em;
+}
+.tiptap p {
+  margin: 0;
+}
+/* Tiptap Placeholder extension decoration — no float, so it can never
+   overlap sibling content the way the old ::before hack could. */
+.tiptap p.is-editor-empty::before {
   content: attr(data-placeholder);
-  float: left;
   color: var(--muted-foreground);
   opacity: 0.5;
   pointer-events: none;
-  height: 0;
+  float: none;
+  height: auto;
+  display: block;
+}
+.tiptap blockquote {
+  border-left: 3px solid var(--border);
+  margin: 0.5em 0;
+  padding: 0.1em 0 0.1em 1em;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.tiptap s {
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 .tiptap h1 {
   font-size: 2em;
@@ -215,7 +265,9 @@ html.light {
 }
 .tiptap h1:first-child,
 .tiptap h2:first-child,
-.tiptap h3:first-child { margin-top: 0; }
+.tiptap h3:first-child {
+  margin-top: 0;
+}
 .tiptap ul {
   list-style: disc;
   padding-left: 1.4em;
@@ -226,11 +278,22 @@ html.light {
   padding-left: 1.4em;
   margin: 0.35em 0;
 }
-.tiptap li { margin: 0.15em 0; }
-.tiptap li > p { margin: 0; }
-.tiptap strong { font-weight: 700; }
-.tiptap em { font-style: italic; }
-.tiptap u { text-decoration: underline; text-underline-offset: 3px; }
+.tiptap li {
+  margin: 0.15em 0;
+}
+.tiptap li > p {
+  margin: 0;
+}
+.tiptap strong {
+  font-weight: 700;
+}
+.tiptap em {
+  font-style: italic;
+}
+.tiptap u {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .tiptap mark {
   background-color: oklch(0.82 0.16 90 / 0.7);
   color: oklch(0.18 0.02 90);
@@ -269,16 +332,32 @@ html.light .tiptap img {
 
 /* ── Edit-mode card wiggle (iOS-style) ───────────────────────────────────── */
 @keyframes note-wiggle {
-  0%   { transform: rotate(0deg) translateY(0); }
-  20%  { transform: rotate(-1.4deg) translateY(-1px); }
-  60%  { transform: rotate(1.4deg) translateY(-1px); }
-  80%  { transform: rotate(-0.8deg) translateY(0); }
-  100% { transform: rotate(0deg) translateY(0); }
+  0% {
+    transform: rotate(0deg) translateY(0);
+  }
+  20% {
+    transform: rotate(-1.4deg) translateY(-1px);
+  }
+  60% {
+    transform: rotate(1.4deg) translateY(-1px);
+  }
+  80% {
+    transform: rotate(-0.8deg) translateY(0);
+  }
+  100% {
+    transform: rotate(0deg) translateY(0);
+  }
 }
 .note-wiggle {
   animation: note-wiggle 0.45s ease-in-out infinite;
 }
 /* Stagger each card slightly so they don't all jiggle in sync */
-.note-wiggle:nth-child(2n)   { animation-delay: 0.08s; }
-.note-wiggle:nth-child(3n)   { animation-delay: 0.16s; }
-.note-wiggle:nth-child(4n)   { animation-delay: 0.04s; }
+.note-wiggle:nth-child(2n) {
+  animation-delay: 0.08s;
+}
+.note-wiggle:nth-child(3n) {
+  animation-delay: 0.16s;
+}
+.note-wiggle:nth-child(4n) {
+  animation-delay: 0.04s;
+}
