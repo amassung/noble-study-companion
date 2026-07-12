@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -44,14 +45,14 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
 
   const c = NOTEBOOK_COLORS.find((x) => x.value === color) ?? NOTEBOOK_COLORS[0];
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 pb-8 shadow-glow-lg sm:rounded-2xl animate-float-in"
+        className="max-h-[88vh] w-full max-w-sm overflow-y-auto rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 pb-8 shadow-glow-lg sm:rounded-2xl animate-float-in"
       >
         {/* Header */}
         <div className="mb-4 flex items-center gap-3">
@@ -190,6 +191,7 @@ export function NewNotebookSheet({ onCreate, onClose }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
