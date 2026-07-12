@@ -499,8 +499,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
   useLayoutEffect(() => {
     const el = titleRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const resize = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    resize();
+    // Re-measure when the viewport width changes — a title that fits on
+    // one line at one width can wrap to two at another, and without this
+    // the box would stay one row tall and clip.
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
   }, [title, hydrated]);
 
   // Focus title on open
@@ -828,6 +836,28 @@ export function NoteEditor({ noteId, onClose }: Props) {
         </div>
       </header>
 
+      {/* ── Document title — top-level, above the page (Docs-style) ────── */}
+      <div
+        className="border-b border-border/40 px-4 py-2.5 sm:px-6"
+        style={{ backgroundColor: "color-mix(in oklab, var(--background) 80%, transparent)" }}
+      >
+        <div className="mx-auto w-full max-w-3xl">
+          <textarea
+            ref={titleRef}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Untitled note"
+            rows={1}
+            className="w-full resize-none bg-transparent text-left text-[20px] font-semibold leading-tight tracking-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none sm:text-[23px]"
+            onInput={(e) => {
+              const el = e.currentTarget;
+              el.style.height = "auto";
+              el.style.height = `${el.scrollHeight}px`;
+            }}
+          />
+        </div>
+      </div>
+
       {/* ── Formatting toolbar ────────────────────────────────────────── */}
       <Toolbar editor={editor} />
 
@@ -836,11 +866,12 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
       {/* ── Scrollable body ───────────────────────────────────────────── */}
       <div
-        className={`flex-1 min-h-0 overflow-y-auto bg-[var(--canvas)]${annotationMode !== "none" ? " annotating" : ""}`}
+        style={{ backgroundColor: "var(--canvas)" }}
+        className={`flex-1 min-h-0 overflow-y-auto${annotationMode !== "none" ? " annotating" : ""}`}
       >
-        <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8">
           {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
             {SUBJECTS.map((s) => {
               const active = s.value === subject;
               return (
@@ -941,36 +972,28 @@ export function NoteEditor({ noteId, onClose }: Props) {
           </div>
 
           {/* ── The page ─────────────────────────────────────────────────
-              A distinct "sheet of paper": bounded, shadowed, and always
-              tall enough to read as a full page — no fixed/max height
-              anywhere in this subtree, so content can never clip. */}
-          <div className="min-h-[75vh] rounded-2xl border border-border/50 bg-[var(--surface)] px-5 py-8 shadow-card sm:px-14 sm:py-14">
-            {/* Title — top-left of the page, Docs-style */}
-            <textarea
-              ref={titleRef}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Untitled note"
-              rows={1}
-              className="w-full resize-none bg-transparent text-left text-[26px] font-semibold leading-tight tracking-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none sm:text-[30px]"
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = "auto";
-                el.style.height = `${el.scrollHeight}px`;
-              }}
-            />
-
-            {/* Rich text editor */}
-            <div className="mt-4">
-              <EditorContent editor={editor} />
-            </div>
+              The note "sheet": a distinct bounded, shadowed card that
+              flex-grows to fill the available height so short notes still
+              read as a full page (no dead space below). Clicking the blank
+              padding focuses the editor at the end. The title now lives in
+              the top bar, so this holds only the note body. */}
+          <div
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) {
+                e.preventDefault();
+                editor?.chain().focus("end").run();
+              }
+            }}
+            className="flex-1 cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12"
+          >
+            <EditorContent editor={editor} />
           </div>
 
           {/* Generate Study Guide */}
           <button
             onClick={() => setGuideOpen(true)}
             disabled={plainBodyLength < 20}
-            className="group mt-8 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+            className="group mt-6 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
             aria-label="Generate study guide"
           >
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">

@@ -47,8 +47,11 @@
   --surface-elevated: oklch(0.26 0 0); /* #222222 */
   --sidebar-bg: oklch(0.21 0 0); /* #161616 */
   /* Neutral "desk" behind the note editor's paper — deliberately darker
-     than --surface so the page reads as a distinct sheet, Docs-style. */
-  --canvas: oklch(0.155 0 0);
+     than --paper so the page reads as a distinct sheet, Docs-style. */
+  --canvas: oklch(0.11 0 0);
+  /* The note "sheet" — noticeably lighter than the desk so its edges
+     are clearly visible against the dark canvas. */
+  --paper: oklch(0.27 0 0);
 
   --card: oklch(0.22 0 0);
   --card-foreground: oklch(0.95 0.01 95);
@@ -93,7 +96,8 @@ html.light {
   --surface: oklch(1 0 0);
   --surface-elevated: oklch(0.95 0.003 95);
   --sidebar-bg: oklch(0.96 0.003 95);
-  --canvas: oklch(0.92 0.003 95);
+  --canvas: oklch(0.9 0.004 95);
+  --paper: oklch(1 0 0);
 
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.15 0.005 95);
