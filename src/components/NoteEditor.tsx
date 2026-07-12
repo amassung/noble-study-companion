@@ -825,11 +825,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
       {/* ── Scrollable body ───────────────────────────────────────────── */}
       <div
-        className={`flex-1 min-h-0 overflow-y-auto${annotationMode !== "none" ? " annotating" : ""}`}
+        className={`flex-1 min-h-0 overflow-y-auto bg-[var(--canvas)]${annotationMode !== "none" ? " annotating" : ""}`}
       >
-        <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-12">
-          {/* Subject chips */}
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+          {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
             {SUBJECTS.map((s) => {
               const active = s.value === subject;
               return (
@@ -851,10 +851,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </button>
               );
             })}
-          </div>
 
-          {/* Notebook assignment */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
             {(() => {
               const nb = notebooks.find((n) => n.id === liveNote.notebookId);
               const c = nb
@@ -884,10 +881,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </button>
               );
             })()}
-          </div>
 
-          {/* Test date */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Popover>
               <PopoverTrigger asChild>
                 <button
@@ -935,31 +929,37 @@ export function NoteEditor({ noteId, onClose }: Props) {
             ) : null}
           </div>
 
-          {/* Title */}
-          <textarea
-            ref={titleRef}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Untitled note"
-            rows={1}
-            className="mt-6 w-full resize-none bg-transparent text-[32px] font-semibold leading-tight tracking-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none sm:text-[40px]"
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = "auto";
-              el.style.height = `${el.scrollHeight}px`;
-            }}
-          />
+          {/* ── The page ─────────────────────────────────────────────────
+              A distinct "sheet of paper": bounded, shadowed, and always
+              tall enough to read as a full page — no fixed/max height
+              anywhere in this subtree, so content can never clip. */}
+          <div className="min-h-[75vh] rounded-2xl border border-border/50 bg-[var(--surface)] px-5 py-8 shadow-card sm:px-14 sm:py-14">
+            {/* Title — top-left of the page, Docs-style */}
+            <textarea
+              ref={titleRef}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Untitled note"
+              rows={1}
+              className="w-full resize-none bg-transparent text-left text-[26px] font-semibold leading-tight tracking-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none sm:text-[30px]"
+              onInput={(e) => {
+                const el = e.currentTarget;
+                el.style.height = "auto";
+                el.style.height = `${el.scrollHeight}px`;
+              }}
+            />
 
-          {/* Rich text editor */}
-          <div className="mt-4">
-            <EditorContent editor={editor} />
+            {/* Rich text editor */}
+            <div className="mt-4">
+              <EditorContent editor={editor} />
+            </div>
           </div>
 
           {/* Generate Study Guide */}
           <button
             onClick={() => setGuideOpen(true)}
             disabled={plainBodyLength < 20}
-            className="group mt-10 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+            className="group mt-8 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
             aria-label="Generate study guide"
           >
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
