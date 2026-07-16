@@ -418,7 +418,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [body, setBody] = useState("");
   const [subject, setSubject] = useState<StoredNote["subject"]>("violet");
   const [subjectLabel, setSubjectLabel] = useState("Philosophy");
-  const [status, setStatus] = useState<"idle" | "saving" | "saved">("saved");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("saved");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
@@ -435,6 +435,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Last content actually persisted — lets us skip no-op saves (opening a
   // note must not bump updated_at) and flush real changes on unmount
   // without stale-closure state.
@@ -560,11 +561,29 @@ export function NoteEditor({ noteId, onClose }: Props) {
     setStatus("saving");
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      pendingSaveRef.current = null;
-      lastSavedRef.current = JSON.stringify(snapshot);
       updateMutation.mutate(
         { id: noteId, patch: snapshot },
-        { onSettled: () => setStatus("saved") },
+        {
+          // Only mark saved (and clear the pending buffer) when the write
+          // actually succeeded. The old onSettled version reported "Saved"
+          // even when the request failed (e.g. dropped Wi-Fi) and cleared
+          // the buffer up front, so failed content was silently lost.
+          onSuccess: () => {
+            lastSavedRef.current = JSON.stringify(snapshot);
+            if (
+              pendingSaveRef.current &&
+              JSON.stringify(pendingSaveRef.current) === JSON.stringify(snapshot)
+            ) {
+              pendingSaveRef.current = null;
+            }
+            setStatus("saved");
+          },
+          onError: () => {
+            setStatus("error");
+            toast.error("Couldn't save — check your connection. Retrying…");
+            scheduleRetryRef.current();
+          },
+        },
       );
     }, 400);
     return () => {
@@ -573,14 +592,57 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, body, subject, subjectLabel, noteId, hydrated]);
 
+  // Warn before closing the tab with unsaved changes still in flight.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (pendingSaveRef.current) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   // Flush any pending (debounced-but-unsaved) edit on unmount. Reads from
   // refs — the previous state-based version captured the initial (empty)
   // render's values and silently never fired.
   const flushMutationRef = useRef(updateMutation);
   flushMutationRef.current = updateMutation;
+
+  // Self-rescheduling save retry: keeps retrying the latest pending content
+  // every 4s until a write succeeds (e.g. Wi-Fi comes back mid-lecture).
+  const scheduleRetryRef = useRef<() => void>(() => {});
+  scheduleRetryRef.current = () => {
+    if (retryRef.current) clearTimeout(retryRef.current);
+    retryRef.current = setTimeout(() => {
+      const latest = pendingSaveRef.current;
+      if (!latest) return;
+      setStatus("saving");
+      flushMutationRef.current.mutate(
+        { id: noteId, patch: latest },
+        {
+          onSuccess: () => {
+            lastSavedRef.current = JSON.stringify(latest);
+            if (
+              pendingSaveRef.current &&
+              JSON.stringify(pendingSaveRef.current) === JSON.stringify(latest)
+            ) {
+              pendingSaveRef.current = null;
+            }
+            setStatus("saved");
+          },
+          onError: () => {
+            setStatus("error");
+            scheduleRetryRef.current();
+          },
+        },
+      );
+    }, 4000);
+  };
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (retryRef.current) clearTimeout(retryRef.current);
       const pending = pendingSaveRef.current;
       if (pending) {
         pendingSaveRef.current = null;
@@ -826,6 +888,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
               <span>Saving…</span>
+            </>
+          ) : status === "error" ? (
+            <>
+              <XIcon className="h-3.5 w-3.5 text-destructive" />
+              <span className="text-destructive">Not saved</span>
             </>
           ) : (
             <>

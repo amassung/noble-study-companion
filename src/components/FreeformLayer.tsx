@@ -51,6 +51,25 @@ function FreeformTextBox({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const contentTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Flush debounced-but-uncommitted typing if the editor unmounts (Back /
+  // Escape) before the 400ms debounce fires — unmount does not fire onBlur,
+  // so without this the last keystrokes were silently lost.
+  const localRef = useRef(local);
+  localRef.current = local;
+  const updateRef = useRef(update);
+  updateRef.current = update;
+  useEffect(() => {
+    return () => {
+      if (contentTimer.current) {
+        clearTimeout(contentTimer.current);
+        updateRef.current.mutate({
+          id: localRef.current.id,
+          patch: { content: localRef.current.content },
+        });
+      }
+    };
+  }, []);
+
   // Auto-grow the textarea height to fit its content.
   useLayoutEffect(() => {
     const el = taRef.current;
@@ -118,7 +137,10 @@ function FreeformTextBox({
   const onContentChange = (value: string) => {
     setLocal((l) => ({ ...l, content: value }));
     if (contentTimer.current) clearTimeout(contentTimer.current);
-    contentTimer.current = setTimeout(() => commit({ content: value }), 400);
+    contentTimer.current = setTimeout(() => {
+      contentTimer.current = null;
+      commit({ content: value });
+    }, 400);
   };
 
   return (
@@ -170,7 +192,10 @@ function FreeformTextBox({
           onFocus={() => setActive(true)}
           onBlur={() => {
             setActive(false);
-            if (contentTimer.current) clearTimeout(contentTimer.current);
+            if (contentTimer.current) {
+              clearTimeout(contentTimer.current);
+              contentTimer.current = null;
+            }
             commit({ content: local.content });
           }}
           placeholder="Text…"
