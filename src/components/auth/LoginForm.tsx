@@ -13,6 +13,27 @@ export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      toast.error("Enter your email above first, then tap Forgot password.");
+      return;
+    }
+    setResetting(true);
+    try {
+      const supabase = getSupabaseClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      toast.success("Password reset email sent — check your inbox.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't send reset email");
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,11 +98,19 @@ export function LoginForm() {
           )}
         </Button>
       </form>
-      <p className="mt-4 text-center">
+      <div className="mt-4 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => void handleForgotPassword()}
+          disabled={resetting}
+          className="text-[12px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          {resetting ? "Sending…" : "Forgot password?"}
+        </button>
         <Link to="/signup" className="text-[12px] text-muted-foreground hover:text-foreground">
           Create an account
         </Link>
-      </p>
+      </div>
     </AuthForm>
   );
 }
