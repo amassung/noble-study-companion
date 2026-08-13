@@ -65,7 +65,9 @@ import { useNotebooks } from "@/lib/notebooks/use-notebooks";
 import { NOTEBOOK_COLORS, PAPER_TEMPLATES, paperClassName } from "@/lib/notebooks/types";
 import { FreeformLayer } from "@/components/FreeformLayer";
 import { useBoxes, useCreateBoxMutation } from "@/lib/boxes/use-boxes";
-import { Type as TypeIcon } from "lucide-react";
+import { Type as TypeIcon, PenLine } from "lucide-react";
+import { InkCanvas, type InkMode } from "@/components/InkCanvas";
+import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -431,6 +433,27 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const notebooks = useNotebooks();
   const createBox = useCreateBoxMutation(noteId);
   const { data: boxes = [] } = useBoxes(noteId);
+
+  // ── Handwriting (Apple Pencil) ─────────────────────────────────────────
+  const [inkMode, setInkMode] = useState<InkMode>("off");
+  const [inkColor, setInkColor] = useState<string>(INK_COLORS[0].value);
+  const [inkSize, setInkSize] = useState(5);
+  // Until the user picks a colour themselves, follow the paper: dark ink on
+  // the light/cream papers, light ink on the dark blank sheet — otherwise
+  // the default near-black pen is invisible on a dark page.
+  const inkColorChosenRef = useRef(false);
+  const setInkColorManual = (c: string) => {
+    inkColorChosenRef.current = true;
+    setInkColor(c);
+  };
+  // Effective paper for this note: per-note override → notebook → blank.
+  const effectivePaper =
+    liveNote?.paper ?? notebooks.find((n) => n.id === liveNote?.notebookId)?.paper ?? "blank";
+  const isLightPaper = effectivePaper !== "blank";
+  useEffect(() => {
+    if (inkColorChosenRef.current) return;
+    setInkColor(isLightPaper ? "#1f2937" : "#f4f4f5");
+  }, [isLightPaper]);
   const [showMoveSheet, setShowMoveSheet] = useState(false);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
@@ -835,10 +858,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
           ? "Rendering…"
           : "Import PDF";
 
-  // Effective paper: a per-note override wins, else the notebook's paper,
-  // else blank. The in-editor switcher writes the per-note override.
-  const effectivePaper =
-    liveNote.paper ?? notebooks.find((n) => n.id === liveNote.notebookId)?.paper ?? "blank";
   const paperCls = paperClassName(effectivePaper);
 
   return createPortal(
@@ -903,6 +922,23 @@ export function NoteEditor({ noteId, onClose }: Props) {
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {/* Draw / handwriting toggle (Apple Pencil) */}
+          <button
+            onClick={() => setInkMode(inkMode === "off" ? "pen" : "off")}
+            aria-label="Handwriting"
+            aria-pressed={inkMode !== "off"}
+            title="Draw / handwrite on this page"
+            className={cn(
+              "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+              inkMode !== "off"
+                ? "border-primary/50 bg-primary/15 text-primary"
+                : "border-border/50 bg-[var(--surface)] text-muted-foreground hover:border-primary/40 hover:text-primary",
+            )}
+          >
+            <PenLine className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Draw</span>
+          </button>
+
           {/* Import PDF */}
           <input
             ref={fileInputRef}
@@ -938,7 +974,18 @@ export function NoteEditor({ noteId, onClose }: Props) {
       </header>
 
       {/* ── Formatting toolbar ────────────────────────────────────────── */}
-      <Toolbar editor={editor} />
+      {inkMode === "off" ? (
+        <Toolbar editor={editor} />
+      ) : (
+        <InkToolbar
+          mode={inkMode}
+          setMode={setInkMode}
+          color={inkColor}
+          setColor={setInkColorManual}
+          size={inkSize}
+          setSize={setInkSize}
+        />
+      )}
 
       {/* ── Annotation toolbar (shown when note has slide images) ─────── */}
       {hasSlides && <AnnotationToolbar />}
@@ -1147,6 +1194,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
             </div>
             {/* Free-floating text boxes layer (GoodNotes-style) */}
             <FreeformLayer noteId={noteId} />
+            {/* Handwriting canvas — pointer-transparent while inkMode is off */}
+            <InkCanvas noteId={noteId} mode={inkMode} color={inkColor} size={inkSize} />
           </div>
 
           {/* Generate Study Guide */}
