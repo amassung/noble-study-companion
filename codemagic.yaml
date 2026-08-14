@@ -1,0 +1,79 @@
+# ── Nobi — cloud iOS build → TestFlight ──────────────────────────────────────
+# Builds and signs the iOS app on a hosted Mac and uploads it to TestFlight,
+# so no local Xcode install is required.
+#
+# One-time setup (see IOS_RELEASE.md):
+#   1. Sign in to codemagic.io with GitHub and add this repository.
+#   2. Create an App Store Connect API key (App Store Connect → Users and
+#      Access → Integrations → App Store Connect API, role: App Manager).
+#   3. In Codemagic → Teams → Integrations → Apple Developer Portal, add that
+#      key and name the integration exactly: nobi_app_store_connect
+#   4. Start the `ios-testflight` workflow.
+#
+# Capacitor 8 uses Swift Package Manager, so there is no CocoaPods step and no
+# .xcworkspace — the build targets App.xcodeproj directly.
+
+workflows:
+  ios-testflight:
+    name: Nobi iOS — TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    integrations:
+      app_store_connect: nobi_app_store_connect
+
+    environment:
+      xcode: latest
+      node: 20
+      vars:
+        BUNDLE_ID: "app.nobi.study"
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
+        XCODE_SCHEME: "App"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: app.nobi.study
+
+    scripts:
+      - name: Install dependencies
+        script: npm install --legacy-peer-deps
+
+      - name: Build web assets
+        script: |
+          # The native shell loads the deployed site (capacitor.config.ts →
+          # server.url), so these assets are not what users see. We still build
+          # them so the project stays valid if we later bundle the shell.
+          npm run build || mkdir -p .vercel/output/static
+
+      - name: Capacitor sync (iOS)
+        script: npx cap sync ios
+
+      - name: Set build number from Codemagic build counter
+        script: |
+          cd ios/App
+          agvtool new-version -all "$BUILD_NUMBER"
+
+      - name: Fetch signing profiles
+        script: xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Uploads to TestFlight. Internal testers get it with no review;
+        # external testers require Apple's (lighter) Beta App Review.
+        submit_to_testflight: true
+      email:
+        recipients:
+          - alexander.massung@gmail.com
+        notify:
+          success: true
+          failure: true
