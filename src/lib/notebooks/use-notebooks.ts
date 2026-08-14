@@ -18,8 +18,8 @@ export function useNotebooksList() {
   const { user } = useAuth();
   return useQuery({
     queryKey: notebooksQueryKey(user?.id),
-    queryFn:  fetchNotebooks,
-    enabled:  Boolean(user?.id),
+    queryFn: fetchNotebooks,
+    enabled: Boolean(user?.id),
     staleTime: 60_000,
   });
 }
@@ -44,8 +44,7 @@ export function useUpdateNotebookMutation() {
   const { user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: NotebookPatch }) =>
-      updateNotebook(id, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: NotebookPatch }) => updateNotebook(id, patch),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: notebooksQueryKey(user?.id) });
     },
@@ -61,7 +60,10 @@ export function useDeleteNotebookMutation() {
       const key = notebooksQueryKey(user?.id);
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<StoredNotebook[]>(key);
-      qc.setQueryData<StoredNotebook[]>(key, (prev ?? []).filter((n) => n.id !== id));
+      qc.setQueryData<StoredNotebook[]>(
+        key,
+        (prev ?? []).filter((n) => n.id !== id),
+      );
       return { prev };
     },
     onError: (_err, _id, ctx) => {

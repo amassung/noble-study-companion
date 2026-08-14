@@ -12,13 +12,13 @@ export interface BaseAnnotation {
 }
 
 export interface TextAnnotationData {
-  x: number;           // 0-1 ratio of slide width
-  y: number;           // 0-1 ratio of slide height
-  width: number;       // 0-1 ratio of slide width
-  height?: number;     // 0-1 ratio of slide height; undefined = auto-size to content
+  x: number; // 0-1 ratio of slide width
+  y: number; // 0-1 ratio of slide height
+  width: number; // 0-1 ratio of slide width
+  height?: number; // 0-1 ratio of slide height; undefined = auto-size to content
   text: string;
-  color: string;       // CSS color string
-  fontSize: number;    // px
+  color: string; // CSS color string
+  fontSize: number; // px
   fontWeight?: "normal" | "bold";
   fontStyle?: "normal" | "italic";
 }
@@ -26,7 +26,7 @@ export interface TextAnnotationData {
 export interface DrawAnnotationData {
   points: [number, number, number][]; // [x, y, pressure] all 0-1 ratios except pressure
   color: string;
-  size: number;    // stroke size in logical px
+  size: number; // stroke size in logical px
 }
 
 export interface HighlightAnnotationData {
@@ -34,7 +34,7 @@ export interface HighlightAnnotationData {
   y: number;
   width: number;
   height: number;
-  color: string;   // semi-transparent CSS color
+  color: string; // semi-transparent CSS color
 }
 
 export interface TextAnnotation extends BaseAnnotation {

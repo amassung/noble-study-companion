@@ -104,9 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Main */}
       <main className="lg:pl-[240px]">
-        <div className="mx-auto w-full max-w-6xl px-5 pb-28 pt-8 sm:px-8 lg:pb-12">
-          {children}
-        </div>
+        <div className="mx-auto w-full max-w-6xl px-5 pb-28 pt-8 sm:px-8 lg:pb-12">{children}</div>
       </main>
 
       {/* Mobile bottom tab bar */}

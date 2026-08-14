@@ -146,9 +146,7 @@ function ProfilePage() {
             className="group flex w-full items-center justify-between rounded-lg border border-border/60 bg-[var(--surface-elevated)] px-3 py-2.5 text-left transition-colors hover:border-primary/40"
           >
             <span className="text-[14px]">
-              {name || (
-                <span className="text-muted-foreground">Add a display name…</span>
-              )}
+              {name || <span className="text-muted-foreground">Add a display name…</span>}
             </span>
             <Pencil className="h-3.5 w-3.5 text-muted-foreground/60 transition-colors group-hover:text-primary" />
           </button>

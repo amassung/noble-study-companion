@@ -31,7 +31,9 @@ function readStoredTheme(): Theme {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark") return stored;
-  } catch {}
+  } catch {
+    // localStorage unavailable (private mode / blocked cookies) — use default
+  }
   return "dark";
 }
 
@@ -42,7 +44,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyTheme(theme);
     try {
       localStorage.setItem(STORAGE_KEY, theme);
-    } catch {}
+    } catch {
+      // localStorage unavailable — theme still applies for this session
+    }
   }, [theme]);
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), []);

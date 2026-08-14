@@ -13,10 +13,7 @@ export const Route = createFileRoute("/study")({
 });
 
 // Mirror the exact tokens from NoteCard so subject pills look consistent.
-const subjectStyles: Record<
-  Subject,
-  { bg: string; text: string; ring: string; label: string }
-> = {
+const subjectStyles: Record<Subject, { bg: string; text: string; ring: string; label: string }> = {
   violet: {
     bg: "bg-primary/15",
     text: "text-primary",
@@ -182,9 +179,7 @@ function StudyPage() {
                           {qCount} {qCount === 1 ? "question" : "questions"}
                         </span>
                       )}
-                      <span className="text-[11.5px] text-muted-foreground">
-                        {createdLabel}
-                      </span>
+                      <span className="text-[11.5px] text-muted-foreground">{createdLabel}</span>
                     </div>
                   </div>
 

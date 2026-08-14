@@ -38,7 +38,10 @@ export function MoveToNotebookSheet({ currentNotebookId, notebooks, onMove, onCl
             label="No notebook"
             sublabel="Appears in All Notes only"
             active={!currentNotebookId}
-            onClick={() => { onMove(null); onClose(); }}
+            onClick={() => {
+              onMove(null);
+              onClose();
+            }}
           />
 
           {notebooks.length === 0 && (
@@ -56,7 +59,10 @@ export function MoveToNotebookSheet({ currentNotebookId, notebooks, onMove, onCl
                 label={nb.name || "Untitled notebook"}
                 colorClass={c.text}
                 active={currentNotebookId === nb.id}
-                onClick={() => { onMove(nb.id); onClose(); }}
+                onClick={() => {
+                  onMove(nb.id);
+                  onClose();
+                }}
               />
             );
           })}
@@ -100,20 +106,20 @@ function NotebookRow({
           : "border-border/60 bg-[var(--surface)] hover:border-border hover:bg-white/[0.04]",
       )}
     >
-      <span className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1",
-        active
-          ? "bg-primary/20 text-primary ring-primary/30"
-          : "bg-white/[0.06] text-muted-foreground ring-white/10",
-        colorClass,
-      )}>
+      <span
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1",
+          active
+            ? "bg-primary/20 text-primary ring-primary/30"
+            : "bg-white/[0.06] text-muted-foreground ring-white/10",
+          colorClass,
+        )}
+      >
         {emoji}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[13.5px] font-medium text-foreground">{label}</span>
-        {sublabel && (
-          <span className="block text-[11.5px] text-muted-foreground">{sublabel}</span>
-        )}
+        {sublabel && <span className="block text-[11.5px] text-muted-foreground">{sublabel}</span>}
       </span>
       {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
     </button>

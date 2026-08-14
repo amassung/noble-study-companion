@@ -11,7 +11,14 @@ type Props = {
   editMode?: boolean;
 };
 
-export function NotebookCover({ notebook, noteCount, style, onOpen, onDelete, editMode = false }: Props) {
+export function NotebookCover({
+  notebook,
+  noteCount,
+  style,
+  onOpen,
+  onDelete,
+  editMode = false,
+}: Props) {
   const c = NOTEBOOK_COLORS.find((x) => x.value === notebook.color) ?? NOTEBOOK_COLORS[0];
 
   return (
@@ -20,7 +27,10 @@ export function NotebookCover({ notebook, noteCount, style, onOpen, onDelete, ed
       {editMode && onDelete && (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onDelete(notebook.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(notebook.id);
+          }}
           aria-label={`Delete ${notebook.name}`}
           className="absolute -left-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-white shadow-lg ring-2 ring-background transition-transform active:scale-90"
         >
@@ -39,7 +49,9 @@ export function NotebookCover({ notebook, noteCount, style, onOpen, onDelete, ed
         )}
       >
         {/* Coloured left bar */}
-        <span className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${c.bar} opacity-80 group-hover:opacity-100`} />
+        <span
+          className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${c.bar} opacity-80 group-hover:opacity-100`}
+        />
 
         {/* Emoji */}
         <span className="mb-3 text-3xl leading-none">{notebook.emoji}</span>
@@ -72,7 +84,14 @@ type VirtualCoverProps = {
   bar?: string;
 };
 
-export function VirtualNotebookCover({ label, emoji, noteCount, style, onOpen, bar = "from-primary to-secondary" }: VirtualCoverProps) {
+export function VirtualNotebookCover({
+  label,
+  emoji,
+  noteCount,
+  style,
+  onOpen,
+  bar = "from-primary to-secondary",
+}: VirtualCoverProps) {
   return (
     <div style={style} className="animate-float-in">
       <button
@@ -80,9 +99,13 @@ export function VirtualNotebookCover({ label, emoji, noteCount, style, onOpen, b
         onClick={onOpen}
         className="group relative flex w-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-[var(--surface)] p-5 text-left shadow-card transition-all duration-200 hover-glow cursor-pointer hover:-translate-y-0.5"
       >
-        <span className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${bar} opacity-80 group-hover:opacity-100`} />
+        <span
+          className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${bar} opacity-80 group-hover:opacity-100`}
+        />
         <span className="mb-3 text-3xl leading-none">{emoji}</span>
-        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight text-foreground">{label}</h3>
+        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight text-foreground">
+          {label}
+        </h3>
         <div className="mt-auto flex items-center justify-between pt-4">
           <span className="text-[11.5px] font-medium text-primary">
             {noteCount} {noteCount === 1 ? "note" : "notes"}

@@ -3,10 +3,10 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 export type AnnotationMode = "none" | "text" | "draw" | "highlight" | "erase";
 
 export const DRAW_COLORS = [
-  { label: "Black",  value: "#000000" },
-  { label: "White",  value: "#FFFFFF" },
+  { label: "Black", value: "#000000" },
+  { label: "White", value: "#FFFFFF" },
   { label: "Violet", value: "#7C3AED" },
-  { label: "Red",    value: "#EF4444" },
+  { label: "Red", value: "#EF4444" },
 ] as const;
 
 export const HIGHLIGHT_COLORS = [
@@ -35,7 +35,16 @@ export function AnnotationProvider({ children }: { children: ReactNode }) {
 
   return (
     <AnnotationContext.Provider
-      value={{ mode, setMode, drawColor, setDrawColor, highlightColor, setHighlightColor, drawSize, setDrawSize }}
+      value={{
+        mode,
+        setMode,
+        drawColor,
+        setDrawColor,
+        highlightColor,
+        setHighlightColor,
+        drawSize,
+        setDrawSize,
+      }}
     >
       {children}
     </AnnotationContext.Provider>

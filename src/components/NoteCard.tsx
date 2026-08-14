@@ -4,7 +4,10 @@ import { daysUntil, formatTestCountdown } from "@/lib/notes/format";
 
 export type Subject = "violet" | "blue" | "green" | "amber";
 
-const subjectStyles: Record<Subject, { bg: string; text: string; ring: string; label: string; bar: string }> = {
+const subjectStyles: Record<
+  Subject,
+  { bg: string; text: string; ring: string; label: string; bar: string }
+> = {
   violet: {
     bg: "bg-primary/15",
     text: "text-primary",
@@ -153,11 +156,14 @@ export function NoteCard({ note, style, onOpen, onDelete, editMode = false }: Pr
         onClick={handleClick}
         style={{
           transform: `translateX(${dragX}px)`,
-          transition: dragging && !removing ? "none" : "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+          transition:
+            dragging && !removing ? "none" : "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)",
         }}
         className={`group relative overflow-hidden rounded-xl border border-border/60 bg-[var(--surface)] p-5 shadow-card transition-[box-shadow,opacity,border-color] duration-200 touch-pan-y ${editMode ? "cursor-default select-none opacity-80" : "hover-glow cursor-pointer hover:-translate-y-0.5"}`}
       >
-        <span className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${s.bar} opacity-80 group-hover:opacity-100`} />
+        <span
+          className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${s.bar} opacity-80 group-hover:opacity-100`}
+        />
 
         <div className="flex items-start justify-between gap-3">
           <span
@@ -179,29 +185,32 @@ export function NoteCard({ note, style, onOpen, onDelete, editMode = false }: Pr
           {note.title || <span className="text-muted-foreground">Untitled note</span>}
         </h3>
         <p className="mt-1.5 line-clamp-2 min-h-[2.6em] text-[13px] leading-relaxed text-muted-foreground">
-          {note.preview || <span className="opacity-60">No content yet — tap to start writing.</span>}
+          {note.preview || (
+            <span className="opacity-60">No content yet — tap to start writing.</span>
+          )}
         </p>
 
-        {note.testDate != null && (() => {
-          const d = daysUntil(note.testDate);
-          const urgent = d <= 2 && d >= 0;
-          const past = d < 0;
-          return (
-            <div
-              className={[
-                "mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium ring-1 ring-inset",
-                past
-                  ? "bg-white/[0.04] text-muted-foreground ring-white/[0.06]"
-                  : urgent
-                    ? "bg-primary/15 text-primary ring-primary/30 shadow-glow"
-                    : "bg-primary/10 text-primary ring-primary/25",
-              ].join(" ")}
-            >
-              <CalendarClock className="h-3.5 w-3.5" />
-              {formatTestCountdown(note.testDate, note.subjectLabel ?? s.label)}
-            </div>
-          );
-        })()}
+        {note.testDate != null &&
+          (() => {
+            const d = daysUntil(note.testDate);
+            const urgent = d <= 2 && d >= 0;
+            const past = d < 0;
+            return (
+              <div
+                className={[
+                  "mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium ring-1 ring-inset",
+                  past
+                    ? "bg-white/[0.04] text-muted-foreground ring-white/[0.06]"
+                    : urgent
+                      ? "bg-primary/15 text-primary ring-primary/30 shadow-glow"
+                      : "bg-primary/10 text-primary ring-primary/25",
+                ].join(" ")}
+              >
+                <CalendarClock className="h-3.5 w-3.5" />
+                {formatTestCountdown(note.testDate, note.subjectLabel ?? s.label)}
+              </div>
+            );
+          })()}
 
         <div className="mt-4 flex items-center justify-between">
           <span className="text-[11.5px] text-muted-foreground">{note.date}</span>

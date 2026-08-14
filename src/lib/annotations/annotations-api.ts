@@ -13,7 +13,7 @@ export async function fetchAnnotations(noteId: string): Promise<Annotation[]> {
 }
 
 export interface UpsertAnnotationInput {
-  id?: string;         // omit to create new
+  id?: string; // omit to create new
   noteId: string;
   slideKey: string;
   type: AnnotationType;
@@ -22,7 +22,10 @@ export interface UpsertAnnotationInput {
 
 export async function upsertAnnotation(input: UpsertAnnotationInput): Promise<Annotation> {
   const supabase = getSupabaseClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
   if (authError) throw authError;
   if (!user) throw new Error("Not signed in");
 

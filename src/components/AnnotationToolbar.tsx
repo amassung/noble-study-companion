@@ -22,16 +22,24 @@ interface ModeBtn {
 }
 
 const MODE_BTNS: ModeBtn[] = [
-  { mode: "none",      icon: <MousePointer2 className="h-3.5 w-3.5" />, label: "Select" },
-  { mode: "text",      icon: <Type          className="h-3.5 w-3.5" />, label: "Text" },
-  { mode: "draw",      icon: <Pen           className="h-3.5 w-3.5" />, label: "Draw" },
-  { mode: "highlight", icon: <Highlighter   className="h-3.5 w-3.5" />, label: "Highlight" },
-  { mode: "erase",     icon: <Eraser        className="h-3.5 w-3.5" />, label: "Erase" },
+  { mode: "none", icon: <MousePointer2 className="h-3.5 w-3.5" />, label: "Select" },
+  { mode: "text", icon: <Type className="h-3.5 w-3.5" />, label: "Text" },
+  { mode: "draw", icon: <Pen className="h-3.5 w-3.5" />, label: "Draw" },
+  { mode: "highlight", icon: <Highlighter className="h-3.5 w-3.5" />, label: "Highlight" },
+  { mode: "erase", icon: <Eraser className="h-3.5 w-3.5" />, label: "Erase" },
 ];
 
 export function AnnotationToolbar() {
-  const { mode, setMode, drawColor, setDrawColor, highlightColor, setHighlightColor, drawSize, setDrawSize } =
-    useAnnotationContext();
+  const {
+    mode,
+    setMode,
+    drawColor,
+    setDrawColor,
+    highlightColor,
+    setHighlightColor,
+    drawSize,
+    setDrawSize,
+  } = useAnnotationContext();
 
   return (
     <div className="sticky top-[96px] z-10 flex flex-wrap items-center gap-2 border-b border-violet-500/20 bg-[var(--surface-elevated)]/95 px-3 py-2 backdrop-blur-sm sm:px-5">

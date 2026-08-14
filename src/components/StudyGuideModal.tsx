@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Sparkles, X, Copy, Download, Check, AlertCircle, BookOpen, Tag, HelpCircle, Loader2 } from "lucide-react";
+import {
+  Sparkles,
+  X,
+  Copy,
+  Download,
+  Check,
+  AlertCircle,
+  BookOpen,
+  Tag,
+  HelpCircle,
+  Loader2,
+} from "lucide-react";
 import { jsPDF } from "jspdf";
 import { toast } from "sonner";
 import { generateStudyGuide, type StudyGuide } from "@/lib/study-guide.functions";
@@ -64,9 +75,7 @@ export function StudyGuideModal({ open, onClose, note, noteId, initialGuide }: P
             if (!cancelled) toast.success("Study guide saved");
           } catch (saveErr) {
             if (!cancelled) {
-              toast.error(
-                saveErr instanceof Error ? saveErr.message : "Couldn't save study guide",
-              );
+              toast.error(saveErr instanceof Error ? saveErr.message : "Couldn't save study guide");
             }
           } finally {
             if (!cancelled) setSaving(false);
@@ -249,19 +258,28 @@ function Section({
 function GuideContent({ guide }: { guide: StudyGuide }) {
   return (
     <div className="animate-float-in">
-      <Section icon={<BookOpen className="h-3.5 w-3.5" />} title="Key Concepts" count={guide.keyConcepts.length}>
+      <Section
+        icon={<BookOpen className="h-3.5 w-3.5" />}
+        title="Key Concepts"
+        count={guide.keyConcepts.length}
+      >
         {guide.keyConcepts.map((c, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-border/60 bg-[var(--surface)] p-4"
-          >
-            <h4 className="text-[13.5px] font-semibold tracking-tight text-foreground">{c.heading}</h4>
-            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{c.explanation}</p>
+          <div key={i} className="rounded-xl border border-border/60 bg-[var(--surface)] p-4">
+            <h4 className="text-[13.5px] font-semibold tracking-tight text-foreground">
+              {c.heading}
+            </h4>
+            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+              {c.explanation}
+            </p>
           </div>
         ))}
       </Section>
 
-      <Section icon={<Tag className="h-3.5 w-3.5" />} title="Important Terms" count={guide.importantTerms.length}>
+      <Section
+        icon={<Tag className="h-3.5 w-3.5" />}
+        title="Important Terms"
+        count={guide.importantTerms.length}
+      >
         <div className="grid grid-cols-1 gap-2">
           {guide.importantTerms.map((t, i) => (
             <div
@@ -370,7 +388,16 @@ function exportGuideToPdf(g: StudyGuide, subjectLabel?: string) {
     }
   };
 
-  const writeWrapped = (text: string, size: number, opts: { bold?: boolean; color?: [number, number, number]; indent?: number; lineGap?: number } = {}) => {
+  const writeWrapped = (
+    text: string,
+    size: number,
+    opts: {
+      bold?: boolean;
+      color?: [number, number, number];
+      indent?: number;
+      lineGap?: number;
+    } = {},
+  ) => {
     const { bold, color, indent = 0, lineGap = 2 } = opts;
     doc.setFont("helvetica", bold ? "bold" : "normal");
     doc.setFontSize(size);
@@ -441,5 +468,9 @@ function exportGuideToPdf(g: StudyGuide, subjectLabel?: string) {
 }
 
 function slug(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 60);
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 60);
 }
