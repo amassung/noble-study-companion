@@ -11,6 +11,7 @@ import {
 import { migrateLocalNotesIfNeeded } from "@/lib/notes/migrate-local-notes";
 import { notesQueryKey } from "@/lib/notes/use-notes";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { clearOfflineCache } from "@/lib/offline/persister";
 import { useQueryClient } from "@tanstack/react-query";
 
 type AuthContextValue = {
@@ -82,6 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = getSupabaseClient();
     await supabase.auth.signOut();
     queryClient.clear();
+    // Also wipe the offline copy on disk. Without this, the cached notes of
+    // the signed-out user would still be on the device (and restored into the
+    // cache) for whoever signs in next — a real leak on a shared iPad.
+    await clearOfflineCache();
   }, [queryClient]);
 
   const value = useMemo(

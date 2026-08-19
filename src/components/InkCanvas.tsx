@@ -228,10 +228,13 @@ export function InkCanvas({
     const pts = activeRef.current;
     if (pts.length > 1 && mode !== "eraser" && mode !== "off") {
       createStroke.mutate({
-        points: pts,
-        color,
-        size,
-        tool: isHighlighter ? "highlighter" : "pen",
+        noteId,
+        stroke: {
+          points: pts,
+          color,
+          size,
+          tool: isHighlighter ? "highlighter" : "pen",
+        },
       });
     }
     activeRef.current = [];

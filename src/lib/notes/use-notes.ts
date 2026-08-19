@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { OFFLINE_MUTATION_KEYS } from "@/lib/offline/mutation-defaults";
 import type { StudyGuide } from "@/lib/study-guide.functions";
 import {
   addGuide,
@@ -51,11 +52,17 @@ export function useUpdateNoteMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // Keyed so a save made offline can be replayed after an app restart
+    // (see lib/offline/mutation-defaults.ts).
+    mutationKey: OFFLINE_MUTATION_KEYS.updateNote,
     mutationFn: ({ id, patch }: { id: string; patch: NotePatch }) => updateNote(id, patch),
-    // Patch the cached note in place instead of invalidating — autosave
-    // fires every ~400ms while typing, and refetching every note body on
-    // each save is needless load (and can race the editor).
-    onSuccess: (_data, { id, patch }) => {
+    // Patch the cached note immediately (not on success): autosave fires every
+    // ~400ms while typing, so refetching every note body per save is needless
+    // load — and, crucially, while offline the request never resolves. Writing
+    // on success only would leave the persisted cache holding the *old* body,
+    // so reopening the app offline would show the lecture's notes as missing
+    // until the connection came back.
+    onMutate: ({ id, patch }) => {
       const key = notesQueryKey(user?.id);
       const previous = queryClient.getQueryData<StoredNote[]>(key);
       if (!previous) return;
@@ -66,6 +73,9 @@ export function useUpdateNoteMutation() {
           .map((n) => (n.id === id ? { ...n, ...patch, updatedAt } : n))
           .sort((a, b) => b.updatedAt - a.updatedAt),
       );
+      // Deliberately no rollback on error: the editor keeps showing the typed
+      // text and retries, so discarding it from the cache would only make the
+      // user's own words disappear from the list while they are still on screen.
     },
   });
 }

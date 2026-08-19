@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { OFFLINE_MUTATION_KEYS } from "@/lib/offline/mutation-defaults";
 import {
   type BoxPatch,
   type TextBox,
@@ -33,6 +34,8 @@ export function useCreateBoxMutation(noteId: string) {
 export function useUpdateBoxMutation(noteId: string) {
   const qc = useQueryClient();
   return useMutation({
+    // Keyed so offline edits replay after an app restart.
+    mutationKey: OFFLINE_MUTATION_KEYS.updateBox,
     mutationFn: ({ id, patch }: { id: string; patch: BoxPatch }) => updateBox(id, patch),
     // Optimistic: drag/resize/typing must feel instant.
     onMutate: async ({ id, patch }) => {

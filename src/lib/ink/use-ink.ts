@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { OFFLINE_MUTATION_KEYS } from "@/lib/offline/mutation-defaults";
 import { type InkStroke, createStroke, deleteStrokes, fetchInk } from "./ink-api";
 
 function inkKey(noteId: string) {
@@ -22,9 +23,18 @@ export function useInk(noteId: string) {
 export function useCreateStrokeMutation(noteId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (stroke: Parameters<typeof createStroke>[1]) => createStroke(noteId, stroke),
+    // Keyed, and noteId travels in the variables rather than a closure, so a
+    // stroke drawn offline can be replayed after an app restart.
+    mutationKey: OFFLINE_MUTATION_KEYS.createStroke,
+    mutationFn: ({
+      noteId: id,
+      stroke,
+    }: {
+      noteId: string;
+      stroke: Parameters<typeof createStroke>[1];
+    }) => createStroke(id, stroke),
     // Optimistic: the stroke must appear the instant the pen lifts.
-    onMutate: async (stroke) => {
+    onMutate: async ({ stroke }) => {
       await qc.cancelQueries({ queryKey: inkKey(noteId) });
       const prev = qc.getQueryData<InkStroke[]>(inkKey(noteId));
       const tempId = `temp-${Date.now()}-${Math.random()}`;

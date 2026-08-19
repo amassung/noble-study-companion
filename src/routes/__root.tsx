@@ -14,6 +14,8 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthGate } from "../lib/auth/auth-gate";
 import { AuthProvider } from "../lib/auth/auth-provider";
 import { ThemeProvider } from "../lib/theme/theme-provider";
+import { OfflineQueryProvider } from "../lib/offline/OfflineQueryProvider";
+import { OfflineBanner } from "../components/OfflineBanner";
 import { Toaster } from "../components/ui/sonner";
 
 function NotFoundComponent() {
@@ -136,15 +138,16 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
-    <QueryClientProvider client={queryClient}>
+    <OfflineQueryProvider queryClient={queryClient}>
       <ThemeProvider>
         <AuthProvider>
           <AuthGate>
             <Outlet />
           </AuthGate>
+          <OfflineBanner />
           <Toaster richColors position="top-center" />
         </AuthProvider>
       </ThemeProvider>
-    </QueryClientProvider>
+    </OfflineQueryProvider>
   );
 }
