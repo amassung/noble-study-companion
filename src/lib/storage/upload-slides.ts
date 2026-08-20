@@ -29,3 +29,33 @@ export async function uploadSlideImages(opts: {
 
   return urls;
 }
+
+/** Cap on a single pasted/dropped image before upload. */
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Upload one image (pasted, dropped, photographed, or picked) and return its
+ * public URL. Reuses the slides bucket so the existing ownership policy —
+ * which keys off the first path segment being the user's id — applies
+ * unchanged.
+ */
+export async function uploadNoteImage(opts: {
+  userId: string;
+  noteId: string;
+  file: Blob;
+  filename?: string;
+}): Promise<string> {
+  const supabase = getSupabaseClient();
+  const type = opts.file.type || "image/jpeg";
+  const ext = (type.split("/")[1] || "jpg").replace("jpeg", "jpg").split("+")[0];
+  const id = crypto.randomUUID().slice(0, 8);
+  const path = `${opts.userId}/${opts.noteId}/img-${id}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from(SLIDES_BUCKET)
+    .upload(path, opts.file, { contentType: type, upsert: false });
+  if (error) throw new Error(error.message);
+
+  const { data } = supabase.storage.from(SLIDES_BUCKET).getPublicUrl(path);
+  return data.publicUrl;
+}

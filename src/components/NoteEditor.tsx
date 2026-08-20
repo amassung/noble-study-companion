@@ -53,7 +53,7 @@ import {
   type StoredNote,
 } from "@/lib/notes/use-notes";
 import { importPdf, condensePdfContent } from "@/lib/pdf/import-pdf.functions";
-import { uploadSlideImages } from "@/lib/storage/upload-slides";
+import { uploadSlideImages, uploadNoteImage, MAX_IMAGE_BYTES } from "@/lib/storage/upload-slides";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import { MoveToNotebookSheet } from "@/components/MoveToNotebookSheet";
@@ -65,7 +65,7 @@ import { useNotebooks } from "@/lib/notebooks/use-notebooks";
 import { NOTEBOOK_COLORS, PAPER_TEMPLATES, paperClassName } from "@/lib/notebooks/types";
 import { FreeformLayer } from "@/components/FreeformLayer";
 import { useBoxes, useCreateBoxMutation } from "@/lib/boxes/use-boxes";
-import { Type as TypeIcon, PenLine } from "lucide-react";
+import { Type as TypeIcon, PenLine, ImagePlus } from "lucide-react";
 import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 
@@ -86,6 +86,12 @@ const FONT_FAMILIES = [
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
 const MAX_SLIDE_PAGES = 20; // cap on rendered pages per import
 const PAGE_HEIGHT = 1040; // px height of one "page" sheet before it rolls to the next
+
+/** Image files from a paste or drop, ignoring non-image content. */
+function imageFilesFrom(dt: DataTransfer | null | undefined): File[] {
+  if (!dt) return [];
+  return Array.from(dt.files ?? []).filter((f) => f.type.startsWith("image/"));
+}
 
 // Escape text destined for an HTML string so `<`, `&`, quotes in PDF
 // content or titles can't mangle the document structure.
@@ -471,7 +477,44 @@ export function NoteEditor({ noteId, onClose }: Props) {
   } | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Upload pasted/dropped/photographed images, then insert them at the caret.
+  // The editor and user are read from refs so this stays stable enough to be
+  // referenced from the Tiptap paste/drop handlers created below.
+  const editorRef = useRef<Editor | null>(null);
+  const userIdRef = useRef<string | undefined>(undefined);
+  userIdRef.current = user?.id;
+  const insertImageFiles = async (files: File[]) => {
+    const uid = userIdRef.current;
+    if (!uid) {
+      toast.error("Sign in to add images.");
+      return;
+    }
+    setUploadingImage(true);
+    try {
+      for (const file of files) {
+        if (file.size > MAX_IMAGE_BYTES) {
+          toast.error(
+            `Image too large (max 10 MB). This one is ${(file.size / 1024 / 1024).toFixed(1)} MB.`,
+          );
+          continue;
+        }
+        const url = await uploadNoteImage({ userId: uid, noteId, file });
+        editorRef.current?.chain().focus().setImage({ src: url }).run();
+      }
+      setBody(editorRef.current?.getHTML() ?? "");
+    } catch (err) {
+      // Uploads need the network; say so rather than dropping the image.
+      toast.error(
+        err instanceof Error ? `Couldn't add image: ${err.message}` : "Couldn't add image.",
+      );
+    } finally {
+      setUploadingImage(false);
+    }
+  };
   // How many page-sized sheets to show. Grows automatically as content (typed
   // text or a text box) fills the current page — so a note "becomes pages"
   // instead of forcing a new note.
@@ -498,11 +541,29 @@ export function NoteEditor({ noteId, onClose }: Props) {
       attributes: {
         class: "tiptap",
       },
+      // Paste an image straight from the clipboard (screenshot, copied figure).
+      handlePaste: (_view, event) => {
+        const files = imageFilesFrom(event.clipboardData);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void insertImageFiles(files);
+        return true;
+      },
+      // Drag a photo or figure in from Files/Photos or the desktop.
+      handleDrop: (_view, event) => {
+        const dt = (event as DragEvent).dataTransfer;
+        const files = imageFilesFrom(dt);
+        if (files.length === 0) return false;
+        event.preventDefault();
+        void insertImageFiles(files);
+        return true;
+      },
     },
     onUpdate: ({ editor: e }) => {
       setBody(e.getHTML());
     },
   });
+  editorRef.current = editor;
 
   // ── Hydration: populate editor once per noteId ─────────────────────────
   useEffect(() => {
@@ -1095,6 +1156,35 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </button>
               </>
             ) : null}
+
+            {/* Add an image — on iOS this offers Camera or Photo Library */}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []).filter((f) =>
+                  f.type.startsWith("image/"),
+                );
+                e.target.value = "";
+                if (files.length) void insertImageFiles(files);
+              }}
+            />
+            <button
+              onClick={() => imageInputRef.current?.click()}
+              disabled={uploadingImage}
+              title="Add a photo — snap the whiteboard or pick from your library"
+              className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {uploadingImage ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              ) : (
+                <ImagePlus className="h-3.5 w-3.5" />
+              )}
+              {uploadingImage ? "Uploading…" : "Image"}
+            </button>
 
             {/* Add a free-floating text box */}
             <button
