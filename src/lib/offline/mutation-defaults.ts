@@ -3,6 +3,8 @@ import { updateNote, type NotePatch } from "@/lib/notes/notes-api";
 import { updateBox, type BoxPatch } from "@/lib/boxes/boxes-api";
 import { createStroke } from "@/lib/ink/ink-api";
 import type { InkStroke } from "@/lib/ink/ink-api";
+import { saveCardProgress } from "@/lib/cards/cards-api";
+import type { CardProgress } from "@/lib/cards/cards";
 
 /**
  * Stable mutation keys. A paused (offline) mutation is persisted by key only —
@@ -17,6 +19,7 @@ export const OFFLINE_MUTATION_KEYS = {
   updateNote: ["notes", "update"] as const,
   updateBox: ["note_boxes", "update"] as const,
   createStroke: ["note_ink", "create"] as const,
+  reviewCard: ["card_progress", "review"] as const,
 };
 
 export function registerOfflineMutationDefaults(queryClient: QueryClient) {
@@ -26,6 +29,10 @@ export function registerOfflineMutationDefaults(queryClient: QueryClient) {
 
   queryClient.setMutationDefaults(OFFLINE_MUTATION_KEYS.updateBox, {
     mutationFn: ({ id, patch }: { id: string; patch: BoxPatch }) => updateBox(id, patch),
+  });
+
+  queryClient.setMutationDefaults(OFFLINE_MUTATION_KEYS.reviewCard, {
+    mutationFn: (progress: CardProgress) => saveCardProgress(progress),
   });
 
   queryClient.setMutationDefaults(OFFLINE_MUTATION_KEYS.createStroke, {

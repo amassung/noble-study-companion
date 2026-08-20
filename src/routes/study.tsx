@@ -1,6 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Brain, ChevronRight, HelpCircle, NotebookPen, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { Brain, ChevronRight, HelpCircle, Layers, NotebookPen, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FlashcardSession } from "@/components/FlashcardSession";
+import { allCards, dueCards } from "@/lib/cards/cards";
+import { useCardProgress } from "@/lib/cards/use-cards";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
 import type { Subject } from "@/components/NoteCard";
 import { formatRelative } from "@/lib/notes/format";
@@ -51,6 +54,13 @@ function StudyPage() {
   const notes = useNotes();
   const [selected, setSelected] = useState<SelectedGuide | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [sessionCards, setSessionCards] = useState<ReturnType<typeof allCards> | null>(null);
+
+  // Flashcards are derived from saved guides, so they need no extra storage
+  // and appear the moment a guide is generated.
+  const { byKey: progressByKey } = useCardProgress();
+  const cards = useMemo(() => allCards(notes), [notes]);
+  const due = useMemo(() => dueCards(cards, progressByKey), [cards, progressByKey]);
 
   // Build the guide list: one entry per note (most recent guide only),
   // only notes that have at least one saved guide.
@@ -85,6 +95,19 @@ function StudyPage() {
     );
   }
 
+  // A running session takes over the page so nothing competes with recall.
+  if (sessionCards) {
+    return (
+      <div className="animate-float-in">
+        <FlashcardSession
+          cards={sessionCards}
+          progressByKey={progressByKey}
+          onClose={() => setSessionCards(null)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="animate-float-in">
       {/* Page header */}
@@ -101,6 +124,31 @@ function StudyPage() {
           </p>
         </div>
       </div>
+
+      {/* Flashcards — the active-recall entry point */}
+      {cards.length > 0 && (
+        <button
+          onClick={() => setSessionCards(due.length > 0 ? due : cards)}
+          className="group bg-gradient-violet shadow-glow mt-6 flex w-full items-center gap-4 overflow-hidden rounded-xl border border-primary/30 p-4 text-left transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995]"
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
+            <Layers className="h-5 w-5 text-white" strokeWidth={2.3} />
+          </span>
+          <span className="flex-1">
+            <span className="block text-[14.5px] font-semibold text-white">
+              {due.length > 0
+                ? `Review ${due.length} card${due.length === 1 ? "" : "s"}`
+                : "Practice all cards"}
+            </span>
+            <span className="mt-0.5 block text-[12.5px] text-white/80">
+              {due.length > 0
+                ? "Due now — spaced repetition from your study guides."
+                : `All caught up. ${cards.length} card${cards.length === 1 ? "" : "s"} available to practise anyway.`}
+            </span>
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0 text-white/90 transition-transform group-hover:translate-x-0.5" />
+        </button>
+      )}
 
       {/* Empty state */}
       {guideGroups.length === 0 ? (
