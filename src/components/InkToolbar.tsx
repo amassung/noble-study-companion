@@ -1,4 +1,5 @@
-import { Eraser, Highlighter, MousePointer2, Pen } from "lucide-react";
+import { Eraser, Highlighter, MousePointer2, Pen, Redo2, Undo2 } from "lucide-react";
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { InkMode } from "@/components/InkCanvas";
 
@@ -34,6 +35,10 @@ export function InkToolbar({
   setColor,
   size,
   setSize,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
 }: {
   mode: InkMode;
   setMode: (m: InkMode) => void;
@@ -41,8 +46,29 @@ export function InkToolbar({
   setColor: (c: string) => void;
   size: number;
   setSize: (s: number) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }) {
   const palette = mode === "highlighter" ? HIGHLIGHT_INK_COLORS : INK_COLORS;
+
+  // Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z, the shortcuts a GoodNotes user already
+  // has in muscle memory. Bound while the ink toolbar is mounted (i.e. while
+  // handwriting) so they don't fight the text editor's own undo.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      e.preventDefault();
+      if (e.shiftKey) {
+        if (canRedo) onRedo();
+      } else if (canUndo) {
+        onUndo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onUndo, onRedo, canUndo, canRedo]);
 
   const Tool = ({
     value,
@@ -76,6 +102,29 @@ export function InkToolbar({
       <Tool value="pen" icon={<Pen className="h-4 w-4" />} label="Pen" />
       <Tool value="highlighter" icon={<Highlighter className="h-4 w-4" />} label="Highlighter" />
       <Tool value="eraser" icon={<Eraser className="h-4 w-4" />} label="Eraser" />
+
+      <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+
+      <button
+        type="button"
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Undo (⌘Z)"
+        aria-label="Undo"
+        className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <Undo2 className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onRedo}
+        disabled={!canRedo}
+        title="Redo (⇧⌘Z)"
+        aria-label="Redo"
+        className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <Redo2 className="h-4 w-4" />
+      </button>
 
       {mode !== "off" && mode !== "eraser" && (
         <>

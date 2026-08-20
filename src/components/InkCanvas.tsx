@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool } from "@/lib/ink/ink-api";
-import { useCreateStrokeMutation, useDeleteStrokesMutation, useInk } from "@/lib/ink/use-ink";
 
 export type InkMode = "off" | "pen" | "highlighter" | "eraser";
 
@@ -52,16 +51,18 @@ export function InkCanvas({
   mode,
   color,
   size,
+  strokes,
+  addStroke,
+  eraseStrokes,
 }: {
   noteId: string;
   mode: InkMode;
   color: string;
   size: number;
+  strokes: InkStroke[];
+  addStroke: (stroke: Pick<InkStroke, "points" | "color" | "size" | "tool">) => void;
+  eraseStrokes: (ids: string[]) => void;
 }) {
-  const { data: strokes = [] } = useInk(noteId);
-  const createStroke = useCreateStrokeMutation(noteId);
-  const deleteStrokes = useDeleteStrokesMutation(noteId);
-
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [active, setActive] = useState<Point[]>([]);
@@ -167,7 +168,7 @@ export function InkCanvas({
         }
       }
     }
-    if (hits.length) deleteStrokes.mutate(hits);
+    if (hits.length) eraseStrokes(hits);
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -227,14 +228,11 @@ export function InkCanvas({
     // persisted every stroke as two duplicate rows.
     const pts = activeRef.current;
     if (pts.length > 1 && mode !== "eraser" && mode !== "off") {
-      createStroke.mutate({
-        noteId,
-        stroke: {
-          points: pts,
-          color,
-          size,
-          tool: isHighlighter ? "highlighter" : "pen",
-        },
+      addStroke({
+        points: pts,
+        color,
+        size,
+        tool: isHighlighter ? "highlighter" : "pen",
       });
     }
     activeRef.current = [];

@@ -68,6 +68,7 @@ import { useBoxes, useCreateBoxMutation } from "@/lib/boxes/use-boxes";
 import { Type as TypeIcon, PenLine, ImagePlus } from "lucide-react";
 import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
+import { useInkHistory } from "@/lib/ink/use-ink-history";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -441,6 +442,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const { data: boxes = [] } = useBoxes(noteId);
 
   // ── Handwriting (Apple Pencil) ─────────────────────────────────────────
+  // All ink edits go through the history hook so the canvas and the toolbar
+  // share one undo stack.
+  const ink = useInkHistory(noteId);
   const [inkMode, setInkMode] = useState<InkMode>("off");
   const [inkColor, setInkColor] = useState<string>(INK_COLORS[0].value);
   const [inkSize, setInkSize] = useState(5);
@@ -1045,6 +1049,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
           setColor={setInkColorManual}
           size={inkSize}
           setSize={setInkSize}
+          onUndo={ink.undo}
+          onRedo={ink.redo}
+          canUndo={ink.canUndo}
+          canRedo={ink.canRedo}
         />
       )}
 
@@ -1285,7 +1293,15 @@ export function NoteEditor({ noteId, onClose }: Props) {
             {/* Free-floating text boxes layer (GoodNotes-style) */}
             <FreeformLayer noteId={noteId} />
             {/* Handwriting canvas — pointer-transparent while inkMode is off */}
-            <InkCanvas noteId={noteId} mode={inkMode} color={inkColor} size={inkSize} />
+            <InkCanvas
+              noteId={noteId}
+              mode={inkMode}
+              color={inkColor}
+              size={inkSize}
+              strokes={ink.strokes}
+              addStroke={ink.addStroke}
+              eraseStrokes={ink.eraseStrokes}
+            />
           </div>
 
           {/* Generate Study Guide */}
