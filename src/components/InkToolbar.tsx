@@ -1,4 +1,13 @@
-import { Eraser, Highlighter, MousePointer2, Pen, Redo2, Undo2 } from "lucide-react";
+import {
+  Eraser,
+  Highlighter,
+  MousePointer2,
+  Pen,
+  Redo2,
+  Undo2,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { InkMode } from "@/components/InkCanvas";
@@ -39,6 +48,8 @@ export function InkToolbar({
   onRedo,
   canUndo,
   canRedo,
+  zoom,
+  setZoom,
 }: {
   mode: InkMode;
   setMode: (m: InkMode) => void;
@@ -50,6 +61,8 @@ export function InkToolbar({
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  zoom: number;
+  setZoom: (z: number) => void;
 }) {
   const palette = mode === "highlighter" ? HIGHLIGHT_INK_COLORS : INK_COLORS;
 
@@ -124,6 +137,40 @@ export function InkToolbar({
         className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
       >
         <Redo2 className="h-4 w-4" />
+      </button>
+
+      <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+
+      {/* Zoom — pinch works too, but a button is needed on a laptop and for
+          anyone who wants an exact reset. */}
+      <button
+        type="button"
+        onClick={() => setZoom(Math.max(0.5, Math.round((zoom - 0.25) * 100) / 100))}
+        disabled={zoom <= 0.5}
+        title="Zoom out"
+        aria-label="Zoom out"
+        className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <ZoomOut className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => setZoom(1)}
+        title="Reset zoom"
+        aria-label="Reset zoom"
+        className="flex h-[34px] min-w-[46px] items-center justify-center rounded-lg text-[11.5px] font-medium tabular-nums text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+      >
+        {Math.round(zoom * 100)}%
+      </button>
+      <button
+        type="button"
+        onClick={() => setZoom(Math.min(3, Math.round((zoom + 0.25) * 100) / 100))}
+        disabled={zoom >= 3}
+        title="Zoom in"
+        aria-label="Zoom in"
+        className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <ZoomIn className="h-4 w-4" />
       </button>
 
       {mode !== "off" && mode !== "eraser" && (

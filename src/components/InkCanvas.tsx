@@ -54,6 +54,7 @@ export function InkCanvas({
   strokes,
   addStroke,
   eraseStrokes,
+  onGesture,
 }: {
   noteId: string;
   mode: InkMode;
@@ -62,7 +63,13 @@ export function InkCanvas({
   strokes: InkStroke[];
   addStroke: (stroke: Pick<InkStroke, "points" | "color" | "size" | "tool">) => void;
   eraseStrokes: (ids: string[]) => void;
+  onGesture?: (g: { scaleBy: number; dx: number; dy: number }) => void;
 }) {
+  // Active touch pointers. Two or more means the student is panning/zooming
+  // rather than writing, which must keep working mid-session — in GoodNotes
+  // two fingers always pan and pinch even with the pen selected.
+  const touchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const gestureRef = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [active, setActive] = useState<Point[]>([]);
@@ -132,10 +139,15 @@ export function InkCanvas({
   }, [paint]);
 
   const pointFrom = (e: React.PointerEvent): Point => {
-    const rect = hostRef.current!.getBoundingClientRect();
+    const host = hostRef.current!;
+    const rect = host.getBoundingClientRect();
+    // When the page is zoomed, rect is the *scaled* box. x is a fraction so it
+    // is scale-invariant, but y is stored in unscaled page px and must be
+    // divided by the scale or ink would land lower and lower as you zoom in.
+    const scale = host.offsetWidth > 0 ? rect.width / host.offsetWidth : 1;
     return [
       (e.clientX - rect.left) / rect.width,
-      e.clientY - rect.top,
+      (e.clientY - rect.top) / scale,
       // Pencil reports real pressure; mouse/touch report 0 or 0.5.
       e.pressure > 0 ? e.pressure : 0.5,
     ];
@@ -171,8 +183,38 @@ export function InkCanvas({
     if (hits.length) eraseStrokes(hits);
   };
 
+  /** Recompute the pinch baseline from the currently-down touches. */
+  const syncGesture = () => {
+    const pts = [...touchesRef.current.values()];
+    if (pts.length < 2) {
+      gestureRef.current = null;
+      return;
+    }
+    const [a, b] = pts;
+    gestureRef.current = {
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+      cx: (a.x + b.x) / 2,
+      cy: (a.y + b.y) / 2,
+    };
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
-    if (mode === "off" || isPalm(e)) return;
+    if (mode === "off") return;
+
+    if (e.pointerType === "touch") {
+      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchesRef.current.size >= 2) {
+        // A second finger landed: this is a gesture, not a stroke. Abandon any
+        // stroke in progress so a pinch never leaves a stray mark.
+        drawingRef.current = false;
+        activeRef.current = [];
+        setActive([]);
+        syncGesture();
+        return;
+      }
+    }
+
+    if (isPalm(e)) return;
     e.preventDefault();
     // Pointer capture keeps the stroke alive if the pen briefly leaves the
     // canvas, but it can throw (e.g. the pointer is already gone). Never let
@@ -194,7 +236,27 @@ export function InkCanvas({
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!drawingRef.current || mode === "off" || isPalm(e)) return;
+    if (mode === "off") return;
+
+    // Two-finger pan + pinch-zoom, reported to the page so it can transform.
+    if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
+      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touchesRef.current.size >= 2) {
+        const prev = gestureRef.current;
+        const pts = [...touchesRef.current.values()];
+        const [a, b] = pts;
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        const cx = (a.x + b.x) / 2;
+        const cy = (a.y + b.y) / 2;
+        if (prev && prev.dist > 0) {
+          onGesture?.({ scaleBy: dist / prev.dist, dx: cx - prev.cx, dy: cy - prev.cy });
+        }
+        gestureRef.current = { dist, cx, cy };
+        return;
+      }
+    }
+
+    if (!drawingRef.current || isPalm(e)) return;
     e.preventDefault();
     const pt = pointFrom(e);
     if (mode === "eraser") {
@@ -207,16 +269,26 @@ export function InkCanvas({
     };
     const coalesced = native.getCoalescedEvents?.() ?? [];
     if (coalesced.length > 1) {
-      const rect = hostRef.current!.getBoundingClientRect();
+      const host = hostRef.current!;
+      const rect = host.getBoundingClientRect();
+      const scale = host.offsetWidth > 0 ? rect.width / host.offsetWidth : 1;
       const pts: Point[] = coalesced.map((c) => [
         (c.clientX - rect.left) / rect.width,
-        c.clientY - rect.top,
+        (c.clientY - rect.top) / scale,
         c.pressure > 0 ? c.pressure : 0.5,
       ]);
       pushPoints(pts);
     } else {
       pushPoints([pt]);
     }
+  };
+
+  const endPointer = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      touchesRef.current.delete(e.pointerId);
+      syncGesture();
+    }
+    finish();
   };
 
   const finish = () => {
@@ -244,9 +316,9 @@ export function InkCanvas({
       ref={hostRef}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={finish}
-      onPointerCancel={finish}
-      onPointerLeave={finish}
+      onPointerUp={endPointer}
+      onPointerCancel={endPointer}
+      onPointerLeave={endPointer}
       className="absolute inset-0 z-20"
       style={{
         // Off: let clicks reach the text editor underneath.

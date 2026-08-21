@@ -446,6 +446,22 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // share one undo stack.
   const ink = useInkHistory(noteId);
   const [inkMode, setInkMode] = useState<InkMode>("off");
+  // Page zoom. Writing at 100% on a tablet produces oversized handwriting —
+  // zooming in to write at a natural hand size is the normal GoodNotes
+  // workflow, so the page scales rather than the pen.
+  const [zoom, setZoom] = useState(1);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const clampZoom = (z: number) => Math.min(3, Math.max(0.5, z));
+  const handleGesture = ({ scaleBy, dx, dy }: { scaleBy: number; dx: number; dy: number }) => {
+    setZoom((z) => clampZoom(z * scaleBy));
+    // Two-finger drag pans by scrolling the page container, so panning works
+    // even though the ink canvas swallows touch to protect strokes.
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollLeft -= dx;
+      el.scrollTop -= dy;
+    }
+  };
   const [inkColor, setInkColor] = useState<string>(INK_COLORS[0].value);
   const [inkSize, setInkSize] = useState(5);
   // Until the user picks a colour themselves, follow the paper: dark ink on
@@ -1053,6 +1069,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
           onRedo={ink.redo}
           canUndo={ink.canUndo}
           canRedo={ink.canRedo}
+          zoom={zoom}
+          setZoom={(z) => setZoom(clampZoom(z))}
         />
       )}
 
@@ -1062,9 +1080,19 @@ export function NoteEditor({ noteId, onClose }: Props) {
       {/* ── Scrollable body ───────────────────────────────────────────── */}
       <div
         style={{ backgroundColor: "var(--canvas)" }}
-        className={`flex-1 min-h-0 overflow-y-auto${annotationMode !== "none" ? " annotating" : ""}`}
+        ref={scrollRef}
+        className={`flex-1 min-h-0 overflow-auto${annotationMode !== "none" ? " annotating" : ""}`}
       >
-        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8">
+        <div
+          className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8"
+          style={{
+            // Scale the whole page. transform-origin top centre keeps the
+            // sheet centred as it grows, and the scroll container handles
+            // reaching the parts that overflow.
+            transform: zoom === 1 ? undefined : `scale(${zoom})`,
+            transformOrigin: "top center",
+          }}
+        >
           {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
           <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
             {SUBJECTS.map((s) => {
@@ -1301,6 +1329,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
               strokes={ink.strokes}
               addStroke={ink.addStroke}
               eraseStrokes={ink.eraseStrokes}
+              onGesture={handleGesture}
             />
           </div>
 
