@@ -47,19 +47,19 @@ workflows:
       - name: Capacitor sync (iOS)
         script: npx cap sync ios
 
-      - name: Set build number from Codemagic build counter
-        script: |
-          cd ios/App
-          agvtool new-version -all "$BUILD_NUMBER"
-
       - name: Fetch signing profiles
         script: xcode-project use-profiles
 
       - name: Build IPA
         script: |
+          # CFBundleVersion in Info.plist is $(CURRENT_PROJECT_VERSION), so
+          # overriding that build setting stamps the build number. This avoids
+          # agvtool, which needs VERSIONING_SYSTEM = apple-generic — a setting
+          # the Capacitor template does not include, so agvtool would fail.
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME"
+            --scheme "$XCODE_SCHEME" \
+            --archive-xcargs "CURRENT_PROJECT_VERSION=$BUILD_NUMBER"
 
     artifacts:
       - build/ios/ipa/*.ipa
