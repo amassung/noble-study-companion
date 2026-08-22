@@ -77,8 +77,15 @@ workflows:
           # first run. Credentials come from the app_store_connect integration.
           set -e
           keychain initialize
+          # Apple stores only the public certificate; the private key stays on
+          # whoever generated it. Without supplying one, a certificate created
+          # by an earlier (now-destroyed) build VM comes back unusable:
+          # "Cannot save Signing Certificates without certificate private key".
+          # CERTIFICATE_PRIVATE_KEY is a Codemagic env var holding a PEM RSA
+          # key, so every build reuses the same certificate.
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
+            --certificate-key="@env:CERTIFICATE_PRIVATE_KEY" \
             --create
           keychain add-certificates
           xcode-project use-profiles
