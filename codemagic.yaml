@@ -19,6 +19,12 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 60
 
+    # `integrations` belongs at workflow level, not inside `environment` —
+    # the schema rejects it there, and publishing's `auth: integration`
+    # explicitly requires workflow → integrations → app_store_connect.
+    integrations:
+      app_store_connect: nobi_app_store_connect
+
     environment:
       xcode: latest
       node: 20
@@ -26,12 +32,6 @@ workflows:
         BUNDLE_ID: "app.nobi.study"
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
-      # `integrations` must live INSIDE `environment`. At workflow level it is
-      # silently ignored, which leaves signing with no App Store Connect
-      # credentials — the build then fails with "No matching profiles found"
-      # even though the key is configured correctly in the Codemagic UI.
-      integrations:
-        app_store_connect: nobi_app_store_connect
       ios_signing:
         distribution_type: app_store
         bundle_identifier: app.nobi.study
