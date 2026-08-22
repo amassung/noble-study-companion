@@ -46,10 +46,20 @@ workflows:
           # The native shell loads the deployed site (capacitor.config.ts →
           # server.url), so these assets are not what users see. We still build
           # them so the project stays valid if we later bundle the shell.
-          npm run build || mkdir -p .vercel/output/static
+          # Non-fatal: a web build problem must not block the native build.
+          npm run build || echo "web build failed — continuing (assets unused at runtime)"
 
       - name: Capacitor sync (iOS)
-        script: npx cap sync ios
+        script: |
+          set -e
+          # `cap sync` exits immediately if webDir is missing. Previously the
+          # fallback mkdir only ran when the build *failed*, so a successful
+          # build that did not emit this exact path left it absent and sync
+          # died in under a second. Guarantee it exists either way.
+          mkdir -p .vercel/output/static
+          echo "webDir contents:"
+          ls -la .vercel/output/static || true
+          npx cap sync ios
 
       - name: Set up code signing
         script: |
