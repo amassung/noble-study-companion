@@ -69,6 +69,7 @@ import { Type as TypeIcon, PenLine, ImagePlus } from "lucide-react";
 import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
+import { useTheme } from "@/lib/theme/theme-provider";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -445,6 +446,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // All ink edits go through the history hook so the canvas and the toolbar
   // share one undo stack.
   const ink = useInkHistory(noteId);
+  const { theme } = useTheme();
   const [inkMode, setInkMode] = useState<InkMode>("off");
   // Page zoom. Writing at 100% on a tablet produces oversized handwriting —
   // zooming in to write at a natural hand size is the normal GoodNotes
@@ -475,11 +477,15 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // Effective paper for this note: per-note override → notebook → blank.
   const effectivePaper =
     liveNote?.paper ?? notebooks.find((n) => n.id === liveNote?.notebookId)?.paper ?? "blank";
-  const isLightPaper = effectivePaper !== "blank";
+  // The page is light when it uses a cream ruled/grid template *or* when the
+  // app is in light mode — "blank" paper follows the theme, so keying the pen
+  // colour off the template alone put near-white ink on a white page in light
+  // mode, making handwriting invisible.
+  const isLightPage = effectivePaper !== "blank" || theme === "light";
   useEffect(() => {
     if (inkColorChosenRef.current) return;
-    setInkColor(isLightPaper ? "#1f2937" : "#f4f4f5");
-  }, [isLightPaper]);
+    setInkColor(isLightPage ? "#1f2937" : "#f4f4f5");
+  }, [isLightPage]);
   const [showMoveSheet, setShowMoveSheet] = useState(false);
 
   const savedGuides: SavedGuide[] = liveNote?.guides ?? [];
