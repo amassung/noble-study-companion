@@ -39,7 +39,12 @@ workflows:
 
     scripts:
       - name: Install dependencies
-        script: npm install --legacy-peer-deps
+        script: |
+          # npm ci enforces package-lock.json, so a lockfile that drifts from
+          # package.json fails loudly here instead of silently installing the
+          # wrong dependency set (which left @capacitor/cli absent and made
+          # `npx cap` die instantly).
+          npm ci --legacy-peer-deps
 
       - name: Build web assets
         script: |
