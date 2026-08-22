@@ -27,7 +27,9 @@ workflows:
 
     environment:
       xcode: latest
-      node: 20
+      # Capacitor 8's CLI requires Node >= 22 and exits fatally on older
+      # versions ("The Capacitor CLI requires NodeJS >=22.0.0").
+      node: 22
       vars:
         BUNDLE_ID: "app.nobi.study"
         XCODE_PROJECT: "ios/App/App.xcodeproj"
