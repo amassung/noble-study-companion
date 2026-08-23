@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool } from "@/lib/ink/ink-api";
 
@@ -42,12 +42,26 @@ function distToSegment(px: number, py: number, ax: number, ay: number, bx: numbe
  * Coordinates match the text-box model: x is a 0-1 fraction of page width, y
  * is absolute px from the page top — so ink stays put as the page grows.
  *
+ * Two performance/correctness rules govern this component, both learned from
+ * Apple Pencil behaving badly on real hardware:
+ *
+ * 1. The in-progress stroke never touches React state. Putting each sampled
+ *    point in state re-rendered the tree and repainted every committed stroke
+ *    on the page — at the Pencil's 120Hz that is hundreds of full repaints a
+ *    second, and writing lagged badly behind the nib. Committed strokes live
+ *    on a base canvas repainted only when they change; the live stroke draws
+ *    to its own overlay canvas, once per animation frame.
+ *
+ * 2. Pointer handlers are attached natively with { passive: false } rather
+ *    than through React. React cannot register non-passive listeners, so
+ *    preventDefault() on move is unreliable and iOS reclaims the gesture for
+ *    scrolling mid-stroke.
+ *
  * Palm rejection: when a stylus has been seen on this canvas, touch input is
  * ignored, so resting a hand on an iPad doesn't draw. Finger drawing still
  * works on devices with no stylus.
  */
 export function InkCanvas({
-  noteId,
   mode,
   color,
   size,
@@ -65,47 +79,65 @@ export function InkCanvas({
   eraseStrokes: (ids: string[]) => void;
   onGesture?: (g: { scaleBy: number; dx: number; dy: number }) => void;
 }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  // Committed strokes; repainted only when `strokes` changes.
+  const baseRef = useRef<HTMLCanvasElement>(null);
+  // The stroke currently under the nib; cleared and redrawn each frame.
+  const liveRef = useRef<HTMLCanvasElement>(null);
+
+  // Pointer handlers are attached once and must not close over stale props,
+  // so the latest values are mirrored here instead of in the dependency list.
+  const propsRef = useRef({ mode, color, size, strokes, addStroke, eraseStrokes, onGesture });
+  propsRef.current = { mode, color, size, strokes, addStroke, eraseStrokes, onGesture };
+
+  const activeRef = useRef<Point[]>([]);
+  const drawingRef = useRef(false);
+  // Set once a stylus is detected; thereafter touch events are ignored.
+  const sawStylusRef = useRef(false);
+  const erasedRef = useRef<Set<string>>(new Set());
   // Active touch pointers. Two or more means the student is panning/zooming
   // rather than writing, which must keep working mid-session — in GoodNotes
   // two fingers always pan and pinch even with the pen selected.
   const touchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const gestureRef = useRef<{ dist: number; cx: number; cy: number } | null>(null);
-  const hostRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [active, setActive] = useState<Point[]>([]);
-  // Mirror of `active` for reads inside event handlers (see finish()).
-  const activeRef = useRef<Point[]>([]);
-  const pushPoints = (pts: Point[]) => {
-    activeRef.current = [...activeRef.current, ...pts];
-    setActive(activeRef.current);
-  };
-  const drawingRef = useRef(false);
-  // Set once a stylus is detected; thereafter touch events are ignored.
-  const sawStylusRef = useRef(false);
-  const erasedRef = useRef<Set<string>>(new Set());
+  const rafRef = useRef<number | null>(null);
+  // Set by the effect below so prop changes can trigger a repaint without
+  // tearing down and re-attaching the pointer handlers.
+  const repaintRef = useRef<(() => void) | null>(null);
 
-  const isHighlighter = mode === "highlighter";
-
-  const paint = useCallback(() => {
-    const canvas = canvasRef.current;
+  useEffect(() => {
     const host = hostRef.current;
-    if (!canvas || !host) return;
-    const w = host.offsetWidth;
-    const h = host.offsetHeight;
-    if (!w || !h) return;
+    const base = baseRef.current;
+    const live = liveRef.current;
+    if (!host || !base || !live) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-    }
-    const ctx = canvas.getContext("2d")!;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    /** Match both canvases to the host box and device pixel ratio. */
+    const measure = () => {
+      const w = host.offsetWidth;
+      const h = host.offsetHeight;
+      if (!w || !h) return null;
+      const dpr = window.devicePixelRatio || 1;
+      for (const c of [base, live]) {
+        const pw = Math.round(w * dpr);
+        const ph = Math.round(h * dpr);
+        if (c.width !== pw || c.height !== ph) {
+          c.width = pw;
+          c.height = ph;
+          c.style.width = `${w}px`;
+          c.style.height = `${h}px`;
+        }
+      }
+      return { w, h, dpr };
+    };
 
-    const render = (pts: Point[], strokeColor: string, strokeSize: number, tool: InkTool) => {
+    const renderTo = (
+      ctx: CanvasRenderingContext2D,
+      w: number,
+      pts: Point[],
+      strokeColor: string,
+      strokeSize: number,
+      tool: InkTool,
+    ) => {
       const abs: Point[] = pts.map(([x, y, p]) => [x * w, y, p]);
       const path = strokeToPath(abs, strokeSize, tool === "highlighter" ? 0 : 0.6);
       if (!path) return;
@@ -119,216 +151,291 @@ export function InkCanvas({
       ctx.restore();
     };
 
-    for (const s of strokes) render(s.points, s.color, s.size, s.tool);
-    if (active.length > 1) {
-      render(active, color, size, isHighlighter ? "highlighter" : "pen");
-    }
-  }, [strokes, active, color, size, isHighlighter]);
+    const paintBase = () => {
+      const dims = measure();
+      if (!dims) return;
+      const ctx = base.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(dims.dpr, 0, 0, dims.dpr, 0, 0);
+      ctx.clearRect(0, 0, dims.w, dims.h);
+      for (const s of propsRef.current.strokes) {
+        renderTo(ctx, dims.w, s.points, s.color, s.size, s.tool);
+      }
+    };
 
-  useEffect(() => {
-    paint();
-  }, [paint]);
+    const paintLive = () => {
+      const dims = measure();
+      if (!dims) return;
+      const ctx = live.getContext("2d");
+      if (!ctx) return;
+      ctx.setTransform(dims.dpr, 0, 0, dims.dpr, 0, 0);
+      ctx.clearRect(0, 0, dims.w, dims.h);
+      const pts = activeRef.current;
+      if (!pts.length) return;
+      const { color: c, size: s, mode: m } = propsRef.current;
+      renderTo(ctx, dims.w, pts, c, s, m === "highlighter" ? "highlighter" : "pen");
+    };
 
-  // Repaint when the page resizes (rotation, window resize, page growth).
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    const ro = new ResizeObserver(() => paint());
-    ro.observe(host);
-    return () => ro.disconnect();
-  }, [paint]);
+    // Coalesce every sample that arrives within one frame into a single paint.
+    // The pending flag is tracked separately from the frame handle: clearing
+    // the handle inside the callback would be undone by the assignment that
+    // follows it, wedging the scheduler permanently.
+    let livePending = false;
+    const scheduleLive = () => {
+      if (livePending) return;
+      livePending = true;
+      rafRef.current = requestAnimationFrame(() => {
+        livePending = false;
+        rafRef.current = null;
+        paintLive();
+      });
+    };
 
-  const pointFrom = (e: React.PointerEvent): Point => {
-    const host = hostRef.current!;
-    const rect = host.getBoundingClientRect();
-    // When the page is zoomed, rect is the *scaled* box. x is a fraction so it
-    // is scale-invariant, but y is stored in unscaled page px and must be
-    // divided by the scale or ink would land lower and lower as you zoom in.
-    const scale = host.offsetWidth > 0 ? rect.width / host.offsetWidth : 1;
-    return [
-      (e.clientX - rect.left) / rect.width,
-      (e.clientY - rect.top) / scale,
-      // Pencil reports real pressure; mouse/touch report 0 or 0.5.
-      e.pressure > 0 ? e.pressure : 0.5,
-    ];
-  };
+    // Expose repaint to the effects below without re-creating the handlers.
+    repaintRef.current = () => {
+      paintBase();
+      paintLive();
+    };
+    paintBase();
 
-  // True when this event should be ignored as a resting palm.
-  const isPalm = (e: React.PointerEvent) => {
-    if (e.pointerType === "pen") {
-      sawStylusRef.current = true;
-      return false;
-    }
-    return e.pointerType === "touch" && sawStylusRef.current;
-  };
+    const pointFrom = (e: { clientX: number; clientY: number; pressure: number }): Point => {
+      const rect = host.getBoundingClientRect();
+      // When the page is zoomed, rect is the *scaled* box. x is a fraction so
+      // it is scale-invariant, but y is stored in unscaled page px and must be
+      // divided by the scale or ink would land lower and lower as you zoom in.
+      const scale = host.offsetWidth > 0 ? rect.width / host.offsetWidth : 1;
+      return [
+        (e.clientX - rect.left) / rect.width,
+        (e.clientY - rect.top) / scale,
+        // Pencil reports real pressure; mouse/touch report 0 or 0.5.
+        e.pressure > 0 ? e.pressure : 0.5,
+      ];
+    };
 
-  const eraseAt = (pt: Point) => {
-    const w = hostRef.current?.offsetWidth ?? 1;
-    const px = pt[0] * w;
-    const py = pt[1];
-    const hitRadius = Math.max(12, size * 2);
-    const hits: string[] = [];
-    for (const s of strokes) {
-      if (erasedRef.current.has(s.id)) continue;
-      for (let i = 1; i < s.points.length; i++) {
-        const [ax, ay] = [s.points[i - 1][0] * w, s.points[i - 1][1]];
-        const [bx, by] = [s.points[i][0] * w, s.points[i][1]];
-        if (distToSegment(px, py, ax, ay, bx, by) <= hitRadius) {
-          hits.push(s.id);
-          erasedRef.current.add(s.id);
-          break;
+    // True when this event should be ignored as a resting palm.
+    const isPalm = (e: PointerEvent) => {
+      if (e.pointerType === "pen") {
+        sawStylusRef.current = true;
+        return false;
+      }
+      return e.pointerType === "touch" && sawStylusRef.current;
+    };
+
+    const eraseAt = (pt: Point) => {
+      const w = host.offsetWidth || 1;
+      const px = pt[0] * w;
+      const py = pt[1];
+      const hitRadius = Math.max(12, propsRef.current.size * 2);
+      const hits: string[] = [];
+      for (const s of propsRef.current.strokes) {
+        if (erasedRef.current.has(s.id)) continue;
+        for (let i = 1; i < s.points.length; i++) {
+          const [ax, ay] = [s.points[i - 1][0] * w, s.points[i - 1][1]];
+          const [bx, by] = [s.points[i][0] * w, s.points[i][1]];
+          if (distToSegment(px, py, ax, ay, bx, by) <= hitRadius) {
+            hits.push(s.id);
+            erasedRef.current.add(s.id);
+            break;
+          }
         }
       }
-    }
-    if (hits.length) eraseStrokes(hits);
-  };
-
-  /** Recompute the pinch baseline from the currently-down touches. */
-  const syncGesture = () => {
-    const pts = [...touchesRef.current.values()];
-    if (pts.length < 2) {
-      gestureRef.current = null;
-      return;
-    }
-    const [a, b] = pts;
-    gestureRef.current = {
-      dist: Math.hypot(a.x - b.x, a.y - b.y),
-      cx: (a.x + b.x) / 2,
-      cy: (a.y + b.y) / 2,
+      if (hits.length) propsRef.current.eraseStrokes(hits);
     };
-  };
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (mode === "off") return;
-
-    if (e.pointerType === "touch") {
-      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (touchesRef.current.size >= 2) {
-        // A second finger landed: this is a gesture, not a stroke. Abandon any
-        // stroke in progress so a pinch never leaves a stray mark.
-        drawingRef.current = false;
-        activeRef.current = [];
-        setActive([]);
-        syncGesture();
+    /** Recompute the pinch baseline from the currently-down touches. */
+    const syncGesture = () => {
+      const pts = [...touchesRef.current.values()];
+      if (pts.length < 2) {
+        gestureRef.current = null;
         return;
       }
-    }
+      const [a, b] = pts;
+      gestureRef.current = {
+        dist: Math.hypot(a.x - b.x, a.y - b.y),
+        cx: (a.x + b.x) / 2,
+        cy: (a.y + b.y) / 2,
+      };
+    };
 
-    if (isPalm(e)) return;
-    e.preventDefault();
-    // Pointer capture keeps the stroke alive if the pen briefly leaves the
-    // canvas, but it can throw (e.g. the pointer is already gone). Never let
-    // that abort the stroke — losing handwriting is worse than losing capture.
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      /* capture unavailable — drawing still works via window-level events */
-    }
-    drawingRef.current = true;
-    const pt = pointFrom(e);
-    if (mode === "eraser") {
+    const finish = () => {
+      if (!drawingRef.current) return;
+      drawingRef.current = false;
       erasedRef.current.clear();
-      eraseAt(pt);
-    } else {
-      activeRef.current = [pt];
-      setActive(activeRef.current);
-    }
-  };
+      const pts = activeRef.current;
+      const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
+      if (pts.length > 1 && m !== "eraser" && m !== "off") {
+        add({ points: pts, color: c, size: s, tool: m === "highlighter" ? "highlighter" : "pen" });
+      }
+      activeRef.current = [];
+      scheduleLive();
+    };
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (mode === "off") return;
+    const onDown = (e: PointerEvent) => {
+      if (propsRef.current.mode === "off") return;
 
-    // Two-finger pan + pinch-zoom, reported to the page so it can transform.
-    if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
-      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (touchesRef.current.size >= 2) {
-        const prev = gestureRef.current;
-        const pts = [...touchesRef.current.values()];
-        const [a, b] = pts;
-        const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        const cx = (a.x + b.x) / 2;
-        const cy = (a.y + b.y) / 2;
-        if (prev && prev.dist > 0) {
-          onGesture?.({ scaleBy: dist / prev.dist, dx: cx - prev.cx, dy: cy - prev.cy });
+      if (e.pointerType === "touch") {
+        touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touchesRef.current.size >= 2) {
+          // A second finger landed: this is a gesture, not a stroke. Abandon
+          // any stroke in progress so a pinch never leaves a stray mark.
+          drawingRef.current = false;
+          activeRef.current = [];
+          scheduleLive();
+          syncGesture();
+          return;
         }
-        gestureRef.current = { dist, cx, cy };
+      }
+
+      if (isPalm(e)) return;
+      e.preventDefault();
+      // Pointer capture keeps the stroke alive if the pen briefly leaves the
+      // canvas, but it can throw (e.g. the pointer is already gone). Never let
+      // that abort the stroke — losing handwriting is worse than losing capture.
+      try {
+        host.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture unavailable — the stroke still tracks via move events */
+      }
+      drawingRef.current = true;
+      const pt = pointFrom(e);
+      if (propsRef.current.mode === "eraser") {
+        erasedRef.current.clear();
+        eraseAt(pt);
+      } else {
+        activeRef.current = [pt];
+        scheduleLive();
+      }
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (propsRef.current.mode === "off") return;
+
+      // Two-finger pan + pinch-zoom, reported to the page so it can transform.
+      if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
+        touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touchesRef.current.size >= 2) {
+          const prev = gestureRef.current;
+          const [a, b] = [...touchesRef.current.values()];
+          const dist = Math.hypot(a.x - b.x, a.y - b.y);
+          const cx = (a.x + b.x) / 2;
+          const cy = (a.y + b.y) / 2;
+          if (prev && prev.dist > 0) {
+            propsRef.current.onGesture?.({
+              scaleBy: dist / prev.dist,
+              dx: cx - prev.cx,
+              dy: cy - prev.cy,
+            });
+          }
+          gestureRef.current = { dist, cx, cy };
+          return;
+        }
+      }
+
+      if (!drawingRef.current || isPalm(e)) return;
+      e.preventDefault();
+
+      if (propsRef.current.mode === "eraser") {
+        eraseAt(pointFrom(e));
         return;
       }
-    }
 
-    if (!drawingRef.current || isPalm(e)) return;
-    e.preventDefault();
-    const pt = pointFrom(e);
-    if (mode === "eraser") {
-      eraseAt(pt);
-      return;
-    }
-    // Coalesced events give full Pencil sampling rate for smooth strokes.
-    const native = e.nativeEvent as PointerEvent & {
-      getCoalescedEvents?: () => PointerEvent[];
-    };
-    const coalesced = native.getCoalescedEvents?.() ?? [];
-    if (coalesced.length > 1) {
-      const host = hostRef.current!;
+      // Coalesced events carry every sample the Pencil took since the last
+      // frame, so the stroke keeps full 120Hz detail even though we paint at
+      // display rate. Safari returns an empty list rather than omitting the
+      // method, so fall back to the event itself.
+      const coalesced = e.getCoalescedEvents?.() ?? [];
+      const samples = coalesced.length ? coalesced : [e];
       const rect = host.getBoundingClientRect();
       const scale = host.offsetWidth > 0 ? rect.width / host.offsetWidth : 1;
-      const pts: Point[] = coalesced.map((c) => [
-        (c.clientX - rect.left) / rect.width,
-        (c.clientY - rect.top) / scale,
-        c.pressure > 0 ? c.pressure : 0.5,
-      ]);
-      pushPoints(pts);
-    } else {
-      pushPoints([pt]);
-    }
-  };
+      for (const c of samples) {
+        activeRef.current.push([
+          (c.clientX - rect.left) / rect.width,
+          (c.clientY - rect.top) / scale,
+          c.pressure > 0 ? c.pressure : 0.5,
+        ]);
+      }
+      scheduleLive();
+    };
 
-  const endPointer = (e: React.PointerEvent) => {
-    if (e.pointerType === "touch") {
-      touchesRef.current.delete(e.pointerId);
-      syncGesture();
-    }
-    finish();
-  };
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        touchesRef.current.delete(e.pointerId);
+        syncGesture();
+      }
+      try {
+        host.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      finish();
+    };
 
-  const finish = () => {
-    if (!drawingRef.current) return;
-    drawingRef.current = false;
-    erasedRef.current.clear();
-    // Read the stroke from a ref, not from inside a setState updater: React
-    // may invoke updaters more than once, which fired the save twice and
-    // persisted every stroke as two duplicate rows.
-    const pts = activeRef.current;
-    if (pts.length > 1 && mode !== "eraser" && mode !== "off") {
-      addStroke({
-        points: pts,
-        color,
-        size,
-        tool: isHighlighter ? "highlighter" : "pen",
-      });
-    }
-    activeRef.current = [];
-    setActive([]);
-  };
+    // pointercancel commits rather than discards: iOS raises it for reasons
+    // that have nothing to do with intent (a system gesture, a notification),
+    // and throwing away what was already written loses the student's work.
+    //
+    // Deliberately NOT bound: pointerleave. It fires as soon as the nib
+    // crosses a hit-test boundary, which ended each stroke a sample or two in
+    // and left a trail of dots instead of handwriting.
+    const opts: AddEventListenerOptions = { passive: false };
+    host.addEventListener("pointerdown", onDown, opts);
+    host.addEventListener("pointermove", onMove, opts);
+    host.addEventListener("pointerup", onUp, opts);
+    host.addEventListener("pointercancel", onUp, opts);
+
+    // touch-action alone does not stop iOS from claiming a one-finger drag as
+    // a scroll once the stroke is underway. Swallowing single-touch defaults
+    // does; two or more touches pass through to the pan/zoom path above.
+    const swallowTouch = (e: TouchEvent) => {
+      if (propsRef.current.mode === "off") return;
+      if (e.touches.length >= 2) return;
+      e.preventDefault();
+    };
+    host.addEventListener("touchstart", swallowTouch, opts);
+    host.addEventListener("touchmove", swallowTouch, opts);
+
+    const ro = new ResizeObserver(() => {
+      paintBase();
+      paintLive();
+    });
+    ro.observe(host);
+
+    return () => {
+      host.removeEventListener("pointerdown", onDown, opts);
+      host.removeEventListener("pointermove", onMove, opts);
+      host.removeEventListener("pointerup", onUp, opts);
+      host.removeEventListener("pointercancel", onUp, opts);
+      host.removeEventListener("touchstart", swallowTouch, opts);
+      host.removeEventListener("touchmove", swallowTouch, opts);
+      ro.disconnect();
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      repaintRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    repaintRef.current?.();
+  }, [strokes, color, size, mode]);
 
   return (
     <div
       ref={hostRef}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endPointer}
-      onPointerCancel={endPointer}
-      onPointerLeave={endPointer}
       className="absolute inset-0 z-20"
       style={{
         // Off: let clicks reach the text editor underneath.
         pointerEvents: mode === "off" ? "none" : "auto",
         // Prevent scrolling/zooming from stealing the stroke while drawing.
         touchAction: mode === "off" ? "auto" : "none",
-        cursor: mode === "off" ? "auto" : "crosshair",
+        // A long press with the Pencil must not raise the text-selection
+        // loupe or the share callout over the page being written on.
+        WebkitUserSelect: "none",
+        userSelect: "none",
+        WebkitTouchCallout: "none",
       }}
     >
-      <canvas ref={canvasRef} className="h-full w-full" />
+      <canvas ref={baseRef} className="absolute inset-0 h-full w-full" />
+      <canvas ref={liveRef} className="absolute inset-0 h-full w-full" />
     </div>
   );
 }

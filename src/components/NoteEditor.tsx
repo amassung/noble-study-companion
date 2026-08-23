@@ -70,6 +70,7 @@ import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
 import { useTheme } from "@/lib/theme/theme-provider";
+import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
 const FONT_SIZES = [
   { label: "Small", value: "0.85em" },
@@ -453,6 +454,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // workflow, so the page scales rather than the pen.
   const [zoom, setZoom] = useState(1);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const keyboardInset = useKeyboardInset();
   const clampZoom = (z: number) => Math.min(3, Math.max(0.5, z));
   const handleGesture = ({ scaleBy, dx, dy }: { scaleBy: number; dx: number; dy: number }) => {
     setZoom((z) => clampZoom(z * scaleBy));
@@ -624,6 +626,37 @@ export function NoteEditor({ noteId, onClose }: Props) {
       titleRef.current?.focus();
     }
   }, [hydrated, liveNote?.title, editor]);
+
+  // Keep the caret above the on-screen keyboard, the way Google Docs does.
+  // Padding alone only makes the room; the page still has to follow the caret
+  // into it as the student types past the fold.
+  useEffect(() => {
+    if (!editor || !keyboardInset) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const follow = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      // A collapsed caret at the start of an empty block reports an empty
+      // rect; there is nothing meaningful to scroll to in that case.
+      if (!rect.height && !rect.top) return;
+      // One line of breathing room so the caret is never flush with the keys.
+      const limit = window.innerHeight - keyboardInset - 32;
+      if (rect.bottom > limit) el.scrollTop += rect.bottom - limit;
+    };
+
+    // Run after the DOM settles, so the rect reflects the character just typed.
+    const schedule = () => requestAnimationFrame(follow);
+    editor.on("selectionUpdate", schedule);
+    editor.on("update", schedule);
+    schedule();
+    return () => {
+      editor.off("selectionUpdate", schedule);
+      editor.off("update", schedule);
+    };
+  }, [editor, keyboardInset]);
 
   // Lock body scroll while editor is open
   useEffect(() => {
@@ -1085,7 +1118,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
       {/* ── Scrollable body ───────────────────────────────────────────── */}
       <div
-        style={{ backgroundColor: "var(--canvas)" }}
+        style={{
+          backgroundColor: "var(--canvas)",
+          // Give the page room to scroll clear of the on-screen keyboard.
+          // Without this the scrollable area ends behind the keys and the
+          // caret becomes unreachable partway down the page.
+          paddingBottom: keyboardInset || undefined,
+          // The inset changes as the keyboard animates in; matching it keeps
+          // the page from jumping under the student's hand.
+          transition: "padding-bottom 150ms ease-out",
+        }}
         ref={scrollRef}
         className={`flex-1 min-h-0 overflow-auto${annotationMode !== "none" ? " annotating" : ""}`}
       >
