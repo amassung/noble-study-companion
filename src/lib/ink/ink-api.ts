@@ -1,6 +1,8 @@
 import { getSupabaseClient } from "@/lib/supabase/client";
 
-export type InkTool = "pen" | "highlighter";
+// Kept in sync with the note_ink.tool CHECK constraint
+// (supabase/migrations/20260823000000_ink_tools.sql).
+export type InkTool = "pen" | "pencil" | "fineliner" | "highlighter";
 
 // A single freehand stroke on a note page. Points are [x, y, pressure] where
 // x is a 0-1 fraction of page width and y is absolute px from the page top.

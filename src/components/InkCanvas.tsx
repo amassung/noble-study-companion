@@ -2,9 +2,53 @@ import { useEffect, useRef } from "react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool } from "@/lib/ink/ink-api";
 
-export type InkMode = "off" | "pen" | "highlighter" | "eraser";
+export type InkMode = "off" | "pen" | "pencil" | "fineliner" | "highlighter" | "eraser";
 
 type Point = [number, number, number];
+
+const DRAW_TOOLS = ["pen", "pencil", "fineliner", "highlighter"] as const;
+const isDrawTool = (m: InkMode): m is InkTool => (DRAW_TOOLS as readonly string[]).includes(m);
+
+/**
+ * What separates one nib from another on the page.
+ *
+ * `thinning` is how much pressure narrows the line: a gel pen responds a lot,
+ * a technical pen not at all. `grain` breaks the fill up with paper tooth,
+ * which is the difference between "grey pen" and "pencil".
+ */
+const TOOL_SPEC: Record<
+  InkTool,
+  { thinning: number; alpha: number; composite: GlobalCompositeOperation; grain: boolean }
+> = {
+  pen: { thinning: 0.6, alpha: 1, composite: "source-over", grain: false },
+  // Pinpoint/technical pen: dead-even width, no pressure response at all.
+  fineliner: { thinning: 0, alpha: 1, composite: "source-over", grain: false },
+  // Graphite: translucent, strongly pressure-shaded, and speckled.
+  pencil: { thinning: 0.8, alpha: 0.8, composite: "source-over", grain: true },
+  highlighter: { thinning: 0, alpha: 0.35, composite: "multiply", grain: false },
+};
+
+// Graphite sits on the raised tooth of the paper rather than covering it, so a
+// pencil stroke needs holes in its fill to read as one. A speckled tile per
+// ink colour, built once and repeated across the stroke, does that cheaply.
+const grainTiles = new Map<string, HTMLCanvasElement>();
+function grainTile(color: string): HTMLCanvasElement | null {
+  const cached = grainTiles.get(color);
+  if (cached) return cached;
+  if (typeof document === "undefined") return null;
+  const tile = document.createElement("canvas");
+  tile.width = 64;
+  tile.height = 64;
+  const g = tile.getContext("2d");
+  if (!g) return null;
+  g.fillStyle = color;
+  for (let i = 0; i < 1600; i++) {
+    g.globalAlpha = 0.12 + Math.random() * 0.5;
+    g.fillRect(Math.random() * 64, Math.random() * 64, 1, 1);
+  }
+  grainTiles.set(color, tile);
+  return tile;
+}
 
 // Build an SVG path from a perfect-freehand outline.
 function strokeToPath(points: Point[], size: number, thinning: number): string {
@@ -77,7 +121,9 @@ export function InkCanvas({
   strokes: InkStroke[];
   addStroke: (stroke: Pick<InkStroke, "points" | "color" | "size" | "tool">) => void;
   eraseStrokes: (ids: string[]) => void;
-  onGesture?: (g: { scaleBy: number; dx: number; dy: number }) => void;
+  // cx/cy are the pinch centre in client coords, so the page can zoom about
+  // the point between the fingers instead of a fixed origin.
+  onGesture?: (g: { scaleBy: number; dx: number; dy: number; cx: number; cy: number }) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
@@ -138,16 +184,32 @@ export function InkCanvas({
       strokeSize: number,
       tool: InkTool,
     ) => {
+      const spec = TOOL_SPEC[tool] ?? TOOL_SPEC.pen;
       const abs: Point[] = pts.map(([x, y, p]) => [x * w, y, p]);
-      const path = strokeToPath(abs, strokeSize, tool === "highlighter" ? 0 : 0.6);
+      const path = strokeToPath(abs, strokeSize, spec.thinning);
       if (!path) return;
+      const p2d = new Path2D(path);
       ctx.save();
-      if (tool === "highlighter") {
-        ctx.globalAlpha = 0.35;
-        ctx.globalCompositeOperation = "multiply";
+      ctx.globalCompositeOperation = spec.composite;
+      if (spec.grain) {
+        // A soft base coat carries the stroke's shape, then the speckle tile
+        // lays the graphite over it. Base alone looks like a faded pen; tile
+        // alone is too sparse to read as a line.
+        ctx.globalAlpha = spec.alpha * 0.5;
+        ctx.fillStyle = strokeColor;
+        ctx.fill(p2d);
+        const tile = grainTile(strokeColor);
+        const pattern = tile ? ctx.createPattern(tile, "repeat") : null;
+        if (pattern) {
+          ctx.globalAlpha = spec.alpha;
+          ctx.fillStyle = pattern;
+          ctx.fill(p2d);
+        }
+      } else {
+        ctx.globalAlpha = spec.alpha;
+        ctx.fillStyle = strokeColor;
+        ctx.fill(p2d);
       }
-      ctx.fillStyle = strokeColor;
-      ctx.fill(new Path2D(path));
       ctx.restore();
     };
 
@@ -173,7 +235,7 @@ export function InkCanvas({
       const pts = activeRef.current;
       if (!pts.length) return;
       const { color: c, size: s, mode: m } = propsRef.current;
-      renderTo(ctx, dims.w, pts, c, s, m === "highlighter" ? "highlighter" : "pen");
+      renderTo(ctx, dims.w, pts, c, s, isDrawTool(m) ? m : "pen");
     };
 
     // Coalesce every sample that arrives within one frame into a single paint.
@@ -263,8 +325,8 @@ export function InkCanvas({
       erasedRef.current.clear();
       const pts = activeRef.current;
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
-      if (pts.length > 1 && m !== "eraser" && m !== "off") {
-        add({ points: pts, color: c, size: s, tool: m === "highlighter" ? "highlighter" : "pen" });
+      if (pts.length > 1 && isDrawTool(m)) {
+        add({ points: pts, color: c, size: s, tool: m });
       }
       activeRef.current = [];
       scheduleLive();
@@ -324,6 +386,8 @@ export function InkCanvas({
               scaleBy: dist / prev.dist,
               dx: cx - prev.cx,
               dy: cy - prev.cy,
+              cx,
+              cy,
             });
           }
           gestureRef.current = { dist, cx, cy };

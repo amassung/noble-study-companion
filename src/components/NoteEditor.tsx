@@ -10,7 +10,7 @@ import { Image } from "@tiptap/extension-image";
 import { AnnotationToolbar } from "@/components/AnnotationToolbar";
 import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
 import { useAnnotationContext } from "@/components/AnnotationContext";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -456,16 +456,106 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const keyboardInset = useKeyboardInset();
   const clampZoom = (z: number) => Math.min(3, Math.max(0.5, z));
-  const handleGesture = ({ scaleBy, dx, dy }: { scaleBy: number; dx: number; dy: number }) => {
-    setZoom((z) => clampZoom(z * scaleBy));
-    // Two-finger drag pans by scrolling the page container, so panning works
-    // even though the ink canvas swallows touch to protect strokes.
-    const el = scrollRef.current;
-    if (el) {
-      el.scrollLeft -= dx;
-      el.scrollTop -= dy;
-    }
+  // The page's unscaled size. offsetWidth/offsetHeight ignore CSS transforms,
+  // so these stay the natural size at any zoom and can be multiplied out to
+  // reserve the scaled footprint.
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const [natural, setNatural] = useState({ w: 0, h: 0 });
+  // Read by the gesture handler, which must not compute from `zoom` state:
+  // React may invoke a state updater more than once, and doing scroll maths
+  // inside one would apply the pan twice.
+  const zoomRef = useRef(1);
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
+
+  // A callback ref rather than an effect: the page node is not in the tree on
+  // first mount, so a []-dep effect found pageRef.current null, never attached
+  // an observer, and left the natural size at 0 — which collapsed the sizer
+  // and pinned the page's width to 0px.
+  const pageObserverRef = useRef<ResizeObserver | null>(null);
+  const measurePage = (el: HTMLDivElement | null) => {
+    if (!el) return;
+    setNatural((prev) =>
+      prev.w === el.offsetWidth && prev.h === el.offsetHeight
+        ? prev
+        : { w: el.offsetWidth, h: el.offsetHeight },
+    );
   };
+  const setPageRef = useCallback((el: HTMLDivElement | null) => {
+    pageRef.current = el;
+    pageObserverRef.current?.disconnect();
+    pageObserverRef.current = null;
+    if (!el) return;
+    const ro = new ResizeObserver(() => measurePage(el));
+    ro.observe(el);
+    pageObserverRef.current = ro;
+    measurePage(el);
+  }, []);
+
+  const handleGesture = ({
+    scaleBy,
+    dx,
+    dy,
+    cx,
+    cy,
+  }: {
+    scaleBy: number;
+    dx: number;
+    dy: number;
+    cx: number;
+    cy: number;
+  }) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const prev = zoomRef.current;
+    const next = clampZoom(prev * scaleBy);
+    const ratio = next / prev;
+    const rect = el.getBoundingClientRect();
+    // Pinch centre relative to the scroll container's own viewport.
+    const px = cx - rect.left;
+    const py = cy - rect.top;
+    // Base the maths on the scroll position already decided but not yet
+    // written to the DOM. A pinch delivers many samples per frame and React
+    // batches them into one render, so el.scrollLeft still reads its old
+    // value on every sample after the first — compounding against it threw
+    // away all but the last step and left the page far from the fingers.
+    const baseLeft = pendingScrollRef.current?.left ?? el.scrollLeft;
+    const baseTop = pendingScrollRef.current?.top ?? el.scrollTop;
+    // Zoom about the pinch centre rather than a fixed origin: the content
+    // under the fingers has to stay under the fingers, which is what lets a
+    // student pinch into a corner and write in that spot. The two-finger drag
+    // pans on top of it, so pinch and pan compose in one gesture.
+    // Clamp at the near edge: the DOM clamps a negative scroll to 0 anyway,
+    // and letting a negative accumulate inside a batch would drag the page
+    // further off with every sample.
+    const left = Math.max(0, (baseLeft + px) * ratio - px - dx);
+    const top = Math.max(0, (baseTop + py) * ratio - py - dy);
+
+    if (ratio === 1) {
+      // Already at a zoom limit — this is a pure pan.
+      pendingScrollRef.current = null;
+      el.scrollLeft = left;
+      el.scrollTop = top;
+      return;
+    }
+    zoomRef.current = next;
+    // Applied after the scaled layout commits, below.
+    pendingScrollRef.current = { left, top };
+    setZoom(next);
+  };
+
+  // Scroll must land in the same frame the new scale paints, or the page
+  // visibly lurches before settling.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const pending = pendingScrollRef.current;
+    if (!el || !pending) return;
+    pendingScrollRef.current = null;
+    el.scrollLeft = pending.left;
+    el.scrollTop = pending.top;
+  }, [zoom]);
   const [inkColor, setInkColor] = useState<string>(INK_COLORS[0].value);
   const [inkSize, setInkSize] = useState(5);
   // Until the user picks a colour themselves, follow the paper: dark ink on
@@ -1131,310 +1221,340 @@ export function NoteEditor({ noteId, onClose }: Props) {
         ref={scrollRef}
         className={`flex-1 min-h-0 overflow-auto${annotationMode !== "none" ? " annotating" : ""}`}
       >
+        {/* Sizer: reserves the *scaled* footprint. A CSS transform paints
+            outside the layout box without enlarging it, so without this the
+            scroll container never grows and the zoomed-in corners of the page
+            simply cannot be scrolled to. */}
         <div
-          className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8"
-          style={{
-            // Scale the whole page. transform-origin top centre keeps the
-            // sheet centred as it grows, and the scroll container handles
-            // reaching the parts that overflow.
-            transform: zoom === 1 ? undefined : `scale(${zoom})`,
-            transformOrigin: "top center",
-          }}
+          style={
+            zoom === 1
+              ? { minHeight: "100%" }
+              : {
+                  width: natural.w * zoom,
+                  height: natural.h * zoom,
+                  marginInline: "auto",
+                }
+          }
         >
-          {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
-          <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
-            {SUBJECTS.map((s) => {
-              const active = s.value === subject;
-              return (
-                <button
-                  key={s.value}
-                  onClick={() => {
-                    setSubject(s.value);
-                    setSubjectLabel(s.label);
-                  }}
-                  className={[
-                    "group flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-all",
-                    active
-                      ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
-                      : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
-                  ].join(" ")}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-                  {s.label}
-                </button>
-              );
-            })}
-
-            {(() => {
-              const nb = notebooks.find((n) => n.id === liveNote.notebookId);
-              const c = nb
-                ? (NOTEBOOK_COLORS.find((x) => x.value === nb.color) ?? NOTEBOOK_COLORS[0])
-                : null;
-              return (
-                <button
-                  onClick={() => setShowMoveSheet(true)}
-                  className={cn(
-                    "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
-                    nb
-                      ? `border-transparent ring-1 ring-inset ${c!.ring} ${c!.bg} ${c!.text}`
-                      : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {nb ? (
-                    <>
-                      <span className="text-sm leading-none">{nb.emoji}</span>
-                      {nb.name}
-                    </>
-                  ) : (
-                    <>
-                      <BookOpen className="h-3.5 w-3.5" />
-                      Add to notebook
-                    </>
-                  )}
-                </button>
-              );
-            })()}
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className={cn(
-                    "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
-                    liveNote.testDate
-                      ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
-                      : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <CalendarClock className="h-3.5 w-3.5" />
-                  {liveNote.testDate
-                    ? formatTestCountdown(liveNote.testDate, subjectLabel)
-                    : "Set test date"}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={liveNote.testDate ? new Date(liveNote.testDate) : undefined}
-                  onSelect={(d) => setTestDateMutation.mutate({ id: noteId, date: d ?? null })}
-                  initialFocus
-                  className={cn("p-3 pointer-events-auto")}
-                />
-              </PopoverContent>
-            </Popover>
-            {liveNote.testDate ? (
-              <>
-                <span className="text-[11.5px] text-muted-foreground">
-                  {new Date(liveNote.testDate).toLocaleDateString(undefined, {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
-                </span>
-                <button
-                  onClick={() => setTestDateMutation.mutate({ id: noteId, date: null })}
-                  aria-label="Clear test date"
-                  className="flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
-                >
-                  <XIcon className="h-3 w-3" />
-                </button>
-              </>
-            ) : null}
-
-            {/* Add an image — on iOS this offers Camera or Photo Library */}
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []).filter((f) =>
-                  f.type.startsWith("image/"),
+          <div
+            ref={setPageRef}
+            className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8"
+            style={
+              zoom === 1
+                ? undefined
+                : {
+                    // Pin to the measured natural size: `w-full` would resolve
+                    // against the enlarged sizer and scale a second time.
+                    width: natural.w,
+                    maxWidth: "none",
+                    // min-h-full against an enlarged sizer would feed back into
+                    // the measurement above.
+                    minHeight: 0,
+                    // Centring is the sizer's job; auto margins here would
+                    // offset the page and break the focal-point scroll maths.
+                    marginInline: 0,
+                    transform: `scale(${zoom})`,
+                    // Scale from the top-left so scroll offsets map linearly
+                    // onto content coordinates.
+                    transformOrigin: "0 0",
+                  }
+            }
+          >
+            {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
+            <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
+              {SUBJECTS.map((s) => {
+                const active = s.value === subject;
+                return (
+                  <button
+                    key={s.value}
+                    onClick={() => {
+                      setSubject(s.value);
+                      setSubjectLabel(s.label);
+                    }}
+                    className={[
+                      "group flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-all",
+                      active
+                        ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
+                        : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                    ].join(" ")}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+                    {s.label}
+                  </button>
                 );
-                e.target.value = "";
-                if (files.length) void insertImageFiles(files);
-              }}
-            />
-            <button
-              onClick={() => imageInputRef.current?.click()}
-              disabled={uploadingImage}
-              title="Add a photo — snap the whiteboard or pick from your library"
-              className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {uploadingImage ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              ) : (
-                <ImagePlus className="h-3.5 w-3.5" />
-              )}
-              {uploadingImage ? "Uploading…" : "Image"}
-            </button>
+              })}
 
-            {/* Add a free-floating text box */}
-            <button
-              onClick={() => createBox.mutate(undefined)}
-              className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-              title="Add a movable text box"
-            >
-              <TypeIcon className="h-3.5 w-3.5" />
-              Text box
-            </button>
-
-            {/* Paper switcher — change this note's paper on the fly */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  title="Paper style"
-                >
-                  <span
+              {(() => {
+                const nb = notebooks.find((n) => n.id === liveNote.notebookId);
+                const c = nb
+                  ? (NOTEBOOK_COLORS.find((x) => x.value === nb.color) ?? NOTEBOOK_COLORS[0])
+                  : null;
+                return (
+                  <button
+                    onClick={() => setShowMoveSheet(true)}
                     className={cn(
-                      "h-3.5 w-3 rounded-[3px] border border-border/70 bg-[var(--paper)]",
-                      paperCls,
+                      "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                      nb
+                        ? `border-transparent ring-1 ring-inset ${c!.ring} ${c!.bg} ${c!.text}`
+                        : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
                     )}
-                  />
-                  {PAPER_TEMPLATES.find((p) => p.value === effectivePaper)?.label ?? "Paper"}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-2" align="start">
-                <div className="flex gap-2">
-                  {PAPER_TEMPLATES.map((p) => (
-                    <button
-                      key={p.value}
-                      onClick={() =>
-                        updateMutation.mutate({ id: noteId, patch: { paper: p.value } })
-                      }
-                      className={cn(
-                        "flex flex-col items-center gap-1",
-                        effectivePaper === p.value ? "text-foreground" : "text-muted-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "h-14 w-10 rounded-md border bg-[var(--paper)]",
-                          p.className,
-                          effectivePaper === p.value
-                            ? "border-primary ring-2 ring-inset ring-primary/40"
-                            : "border-border/60 hover:border-primary/40",
-                        )}
-                      />
-                      <span className="text-[10px] font-medium">{p.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
+                  >
+                    {nb ? (
+                      <>
+                        <span className="text-sm leading-none">{nb.emoji}</span>
+                        {nb.name}
+                      </>
+                    ) : (
+                      <>
+                        <BookOpen className="h-3.5 w-3.5" />
+                        Add to notebook
+                      </>
+                    )}
+                  </button>
+                );
+              })()}
 
-          {/* ── The page ─────────────────────────────────────────────────
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className={cn(
+                      "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                      liveNote.testDate
+                        ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
+                        : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    {liveNote.testDate
+                      ? formatTestCountdown(liveNote.testDate, subjectLabel)
+                      : "Set test date"}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={liveNote.testDate ? new Date(liveNote.testDate) : undefined}
+                    onSelect={(d) => setTestDateMutation.mutate({ id: noteId, date: d ?? null })}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+              {liveNote.testDate ? (
+                <>
+                  <span className="text-[11.5px] text-muted-foreground">
+                    {new Date(liveNote.testDate).toLocaleDateString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </span>
+                  <button
+                    onClick={() => setTestDateMutation.mutate({ id: noteId, date: null })}
+                    aria-label="Clear test date"
+                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
+                  >
+                    <XIcon className="h-3 w-3" />
+                  </button>
+                </>
+              ) : null}
+
+              {/* Add an image — on iOS this offers Camera or Photo Library */}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []).filter((f) =>
+                    f.type.startsWith("image/"),
+                  );
+                  e.target.value = "";
+                  if (files.length) void insertImageFiles(files);
+                }}
+              />
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                disabled={uploadingImage}
+                title="Add a photo — snap the whiteboard or pick from your library"
+                className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {uploadingImage ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                ) : (
+                  <ImagePlus className="h-3.5 w-3.5" />
+                )}
+                {uploadingImage ? "Uploading…" : "Image"}
+              </button>
+
+              {/* Add a free-floating text box */}
+              <button
+                onClick={() => createBox.mutate(undefined)}
+                className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                title="Add a movable text box"
+              >
+                <TypeIcon className="h-3.5 w-3.5" />
+                Text box
+              </button>
+
+              {/* Paper switcher — change this note's paper on the fly */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    title="Paper style"
+                  >
+                    <span
+                      className={cn(
+                        "h-3.5 w-3 rounded-[3px] border border-border/70 bg-[var(--paper)]",
+                        paperCls,
+                      )}
+                    />
+                    {PAPER_TEMPLATES.find((p) => p.value === effectivePaper)?.label ?? "Paper"}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-2" align="start">
+                  <div className="flex gap-2">
+                    {PAPER_TEMPLATES.map((p) => (
+                      <button
+                        key={p.value}
+                        onClick={() =>
+                          updateMutation.mutate({ id: noteId, patch: { paper: p.value } })
+                        }
+                        className={cn(
+                          "flex flex-col items-center gap-1",
+                          effectivePaper === p.value ? "text-foreground" : "text-muted-foreground",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "h-14 w-10 rounded-md border bg-[var(--paper)]",
+                            p.className,
+                            effectivePaper === p.value
+                              ? "border-primary ring-2 ring-inset ring-primary/40"
+                              : "border-border/60 hover:border-primary/40",
+                          )}
+                        />
+                        <span className="text-[10px] font-medium">{p.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* ── The page ─────────────────────────────────────────────────
               The note "sheet": a distinct bounded, shadowed card that
               flex-grows to fill the available height so short notes still
               read as a full page (no dead space below). Clicking the blank
               padding focuses the editor at the end. The title now lives in
               the top bar, so this holds only the note body. */}
-          <div
-            ref={cardRef}
-            onMouseDown={(e) => {
-              if (e.target === e.currentTarget) {
-                e.preventDefault();
-                editor?.chain().focus("end").run();
-              }
-            }}
-            style={{ minHeight: `${pageCount * PAGE_HEIGHT}px` }}
-            className={cn(
-              "relative cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
-              paperCls,
-            )}
-          >
-            {/* Page-break separators — a dashed rule + page pill at each
+            <div
+              ref={cardRef}
+              onMouseDown={(e) => {
+                if (e.target === e.currentTarget) {
+                  e.preventDefault();
+                  editor?.chain().focus("end").run();
+                }
+              }}
+              style={{ minHeight: `${pageCount * PAGE_HEIGHT}px` }}
+              className={cn(
+                "relative cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
+                paperCls,
+              )}
+            >
+              {/* Page-break separators — a dashed rule + page pill at each
                 page boundary so a long note visibly reads as pages. */}
-            {Array.from({ length: pageCount - 1 }).map((_, i) => (
-              <div
-                key={i}
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 z-[2] flex items-center gap-3 px-4"
-                style={{ top: `${(i + 1) * PAGE_HEIGHT}px`, transform: "translateY(-50%)" }}
-              >
-                <span className="h-0 flex-1 border-t border-dashed border-border" />
-                <span className="rounded-full border border-border/70 bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Page {i + 2}
-                </span>
-                <span className="h-0 flex-1 border-t border-dashed border-border" />
-              </div>
-            ))}
-
-            <div className="relative z-[1]">
-              <EditorContent editor={editor} />
-            </div>
-            {/* Free-floating text boxes layer (GoodNotes-style) */}
-            <FreeformLayer noteId={noteId} />
-            {/* Handwriting canvas — pointer-transparent while inkMode is off */}
-            <InkCanvas
-              noteId={noteId}
-              mode={inkMode}
-              color={inkColor}
-              size={inkSize}
-              strokes={ink.strokes}
-              addStroke={ink.addStroke}
-              eraseStrokes={ink.eraseStrokes}
-              onGesture={handleGesture}
-            />
-          </div>
-
-          {/* Generate Study Guide */}
-          <button
-            onClick={() => setGuideOpen(true)}
-            disabled={plainBodyLength < 20}
-            className="group mt-6 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-            aria-label="Generate study guide"
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
-              <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
-            </span>
-            <span className="flex-1">
-              <span className="block text-[14.5px] font-semibold text-white">
-                Generate Study Guide
-              </span>
-              <span className="mt-0.5 block text-[12.5px] text-white/80">
-                {plainBodyLength < 20
-                  ? "Write a few sentences first…"
-                  : "Key concepts, terms, and practice questions — in seconds."}
-              </span>
-            </span>
-          </button>
-
-          {/* Saved guides */}
-          <section className="mt-10">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
-                  <Sparkles className="h-3.5 w-3.5" />
-                </span>
-                <h3 className="text-[14px] font-semibold tracking-tight">Saved Study Guides</h3>
-                {savedGuides.length > 0 && (
-                  <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
-                    {savedGuides.length}
+              {Array.from({ length: pageCount - 1 }).map((_, i) => (
+                <div
+                  key={i}
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 z-[2] flex items-center gap-3 px-4"
+                  style={{ top: `${(i + 1) * PAGE_HEIGHT}px`, transform: "translateY(-50%)" }}
+                >
+                  <span className="h-0 flex-1 border-t border-dashed border-border" />
+                  <span className="rounded-full border border-border/70 bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    Page {i + 2}
                   </span>
-                )}
+                  <span className="h-0 flex-1 border-t border-dashed border-border" />
+                </div>
+              ))}
+
+              <div className="relative z-[1]">
+                <EditorContent editor={editor} />
               </div>
+              {/* Free-floating text boxes layer (GoodNotes-style) */}
+              <FreeformLayer noteId={noteId} />
+              {/* Handwriting canvas — pointer-transparent while inkMode is off */}
+              <InkCanvas
+                noteId={noteId}
+                mode={inkMode}
+                color={inkColor}
+                size={inkSize}
+                strokes={ink.strokes}
+                addStroke={ink.addStroke}
+                eraseStrokes={ink.eraseStrokes}
+                onGesture={handleGesture}
+              />
             </div>
-            {savedGuides.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface)]/40 px-4 py-6 text-center text-[13px] text-muted-foreground">
-                No saved guides yet. Generate one above to save it here.
-              </p>
-            ) : (
-              <div className="space-y-2.5">
-                {savedGuides.map((sg) => (
-                  <SavedGuideRow
-                    key={sg.id}
-                    noteId={noteId}
-                    saved={sg}
-                    onOpen={() => setViewGuide(sg.guide)}
-                  />
-                ))}
+
+            {/* Generate Study Guide */}
+            <button
+              onClick={() => setGuideOpen(true)}
+              disabled={plainBodyLength < 20}
+              className="group mt-6 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+              aria-label="Generate study guide"
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
+                <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
+              </span>
+              <span className="flex-1">
+                <span className="block text-[14.5px] font-semibold text-white">
+                  Generate Study Guide
+                </span>
+                <span className="mt-0.5 block text-[12.5px] text-white/80">
+                  {plainBodyLength < 20
+                    ? "Write a few sentences first…"
+                    : "Key concepts, terms, and practice questions — in seconds."}
+                </span>
+              </span>
+            </button>
+
+            {/* Saved guides */}
+            <section className="mt-10">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </span>
+                  <h3 className="text-[14px] font-semibold tracking-tight">Saved Study Guides</h3>
+                  {savedGuides.length > 0 && (
+                    <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                      {savedGuides.length}
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
-          </section>
+              {savedGuides.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface)]/40 px-4 py-6 text-center text-[13px] text-muted-foreground">
+                  No saved guides yet. Generate one above to save it here.
+                </p>
+              ) : (
+                <div className="space-y-2.5">
+                  {savedGuides.map((sg) => (
+                    <SavedGuideRow
+                      key={sg.id}
+                      noteId={noteId}
+                      saved={sg}
+                      onOpen={() => setViewGuide(sg.guide)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
         </div>
       </div>
 

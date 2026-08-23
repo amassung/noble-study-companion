@@ -3,6 +3,8 @@ import {
   Highlighter,
   MousePointer2,
   Pen,
+  PenLine,
+  Pencil,
   Redo2,
   Undo2,
   ZoomIn,
@@ -113,6 +115,8 @@ export function InkToolbar({
     <div className="flex flex-wrap items-center gap-1 border-b border-border/40 bg-[var(--surface-elevated)]/95 px-3 py-2 backdrop-blur-sm sm:px-5">
       <Tool value="off" icon={<MousePointer2 className="h-4 w-4" />} label="Select / type" />
       <Tool value="pen" icon={<Pen className="h-4 w-4" />} label="Pen" />
+      <Tool value="pencil" icon={<Pencil className="h-4 w-4" />} label="Pencil" />
+      <Tool value="fineliner" icon={<PenLine className="h-4 w-4" />} label="Fine point" />
       <Tool value="highlighter" icon={<Highlighter className="h-4 w-4" />} label="Highlighter" />
       <Tool value="eraser" icon={<Eraser className="h-4 w-4" />} label="Eraser" />
 
