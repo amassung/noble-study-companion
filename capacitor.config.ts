@@ -27,9 +27,9 @@ const config: CapacitorConfig = {
     cleartext: false,
   },
   ios: {
-    // Keep the web view background matching the app's dark theme so there is
-    // no white flash while the first paint happens.
-    backgroundColor: "#111111",
+    // Match the app's default light theme so the web view does not flash a
+    // dark background before the first paint.
+    backgroundColor: "#fafaf8",
     // Nobi handles its own scrolling inside the note editor.
     scrollEnabled: true,
     contentInset: "always",

@@ -34,7 +34,9 @@ function readStoredTheme(): Theme {
   } catch {
     // localStorage unavailable (private mode / blocked cookies) — use default
   }
-  return "dark";
+  // Light is the default: notes on white paper is what students expect, and
+  // it matches the printed/handwritten material they study from.
+  return "light";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

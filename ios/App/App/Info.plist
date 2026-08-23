@@ -73,10 +73,12 @@
 	     here removes the export-compliance prompt on every TestFlight upload. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<!-- Dark app: keep status bar text light. -->
+	<!-- Nobi defaults to the light theme, so the native chrome matches:
+	     dark status bar text on a light background, and no dark launch
+	     flash before the white page paints. -->
 	<key>UIStatusBarStyle</key>
-	<string>UIStatusBarStyleLightContent</string>
+	<string>UIStatusBarStyleDarkContent</string>
 	<key>UIUserInterfaceStyle</key>
-	<string>Dark</string>
+	<string>Light</string>
 </dict>
 </plist>

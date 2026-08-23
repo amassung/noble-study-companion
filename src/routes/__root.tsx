@@ -83,7 +83,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { name: "theme-color", content: "#111111" },
+      // Matches the light default (--background), so browser and PWA chrome
+      // don't render a dark bar above a white app.
+      { name: "theme-color", content: "#fafaf8" },
       { title: "Nobi — Study, smarter." },
       {
         name: "description",
@@ -116,12 +118,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="light">
       <head>
-        {/* Anti-flash: apply stored theme class before first paint */}
+        {/* Anti-flash: light is the default, so the server already renders
+            with the class. Only an explicit "dark" choice removes it — doing
+            it this way round means no flash of the wrong theme either way. */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var t=localStorage.getItem('nobi:theme');if(t==='light')document.documentElement.classList.add('light')}catch(e){}`,
+            __html: `try{if(localStorage.getItem('nobi:theme')==='dark')document.documentElement.classList.remove('light')}catch(e){}`,
           }}
         />
         <HeadContent />
