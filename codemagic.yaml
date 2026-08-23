@@ -26,6 +26,11 @@ workflows:
       app_store_connect: nobi_app_store_connect
 
     environment:
+      # Codemagic exposes an environment variable to a build only if the
+      # workflow declares its group. CERTIFICATE_PRIVATE_KEY (the PEM signing
+      # key) must be added to a group named exactly `nobi_signing`.
+      groups:
+        - nobi_signing
       xcode: latest
       # Capacitor 8's CLI requires Node >= 22 and exits fatally on older
       # versions ("The Capacitor CLI requires NodeJS >=22.0.0").
