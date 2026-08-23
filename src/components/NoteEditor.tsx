@@ -90,6 +90,59 @@ const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
 const MAX_SLIDE_PAGES = 20; // cap on rendered pages per import
 const PAGE_HEIGHT = 1040; // px height of one "page" sheet before it rolls to the next
 
+/**
+ * The zoom transform, as plain style objects.
+ *
+ * Single source of truth on purpose: React renders these at rest, and the
+ * pinch handler writes the very same values straight to the DOM while a
+ * gesture is in flight (re-rendering this component per pinch sample is what
+ * made zooming lag). Two copies of this logic would drift apart.
+ */
+function zoomStyles(z: number, nat: { w: number; h: number }) {
+  if (z === 1) {
+    return { sizer: { minHeight: "100%" } as const, page: undefined };
+  }
+  return {
+    sizer: { width: nat.w * z, height: nat.h * z, marginInline: "auto" },
+    page: {
+      // Pin to the measured natural size: `w-full` would resolve against the
+      // enlarged sizer and scale a second time.
+      width: nat.w,
+      maxWidth: "none",
+      // min-h-full against an enlarged sizer would feed back into the
+      // measurement that produced it.
+      minHeight: 0,
+      // Centring is the sizer's job; auto margins here would offset the page
+      // and break the focal-point scroll maths.
+      marginInline: 0,
+      transform: `scale(${z})`,
+      // Scale from the top-left so scroll offsets map linearly onto content
+      // coordinates.
+      transformOrigin: "0 0",
+    },
+  };
+}
+
+/** Apply one of the above style objects to a real element. */
+function applyStyle(el: HTMLElement | null, style: Record<string, unknown> | undefined) {
+  if (!el) return;
+  const s = el.style;
+  s.width = "";
+  s.height = "";
+  s.minHeight = "";
+  s.maxWidth = "";
+  s.marginInline = "";
+  s.transform = "";
+  s.transformOrigin = "";
+  if (!style) return;
+  for (const [k, v] of Object.entries(style)) {
+    s.setProperty(
+      k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`),
+      typeof v === "number" && v !== 0 ? `${v}px` : String(v),
+    );
+  }
+}
+
 /** Image files from a paste or drop, ignoring non-image content. */
 function imageFilesFrom(dt: DataTransfer | null | undefined): File[] {
   if (!dt) return [];
@@ -455,12 +508,39 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [zoom, setZoom] = useState(1);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const keyboardInset = useKeyboardInset();
-  const clampZoom = (z: number) => Math.min(3, Math.max(0.5, z));
+  // Zooming out is only useful as far as "show me the whole sheet" — going
+  // further just strands the page in the middle of a grey field. The floor is
+  // therefore the scale that fits one page in the viewport, never above 1:1.
+  const [fitZoom, setFitZoom] = useState(0.5);
+  const clampZoom = (z: number) => Math.min(3, Math.max(fitZoom, z));
   // The page's unscaled size. offsetWidth/offsetHeight ignore CSS transforms,
   // so these stay the natural size at any zoom and can be multiplied out to
   // reserve the scaled footprint.
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const sizerRef = useRef<HTMLDivElement | null>(null);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
+
+  // Track the scroll viewport so the zoom floor follows rotation and resize.
+  // Callback ref, not an effect: this container is not in the tree on first
+  // mount either, so a []-dep effect would find the ref null, never observe
+  // anything, and leave the floor at its placeholder value.
+  const scrollObserverRef = useRef<ResizeObserver | null>(null);
+  const setScrollRef = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    scrollObserverRef.current?.disconnect();
+    scrollObserverRef.current = null;
+    if (!el) return;
+    const recompute = () => {
+      if (!el.clientHeight) return;
+      // 1.06 leaves the sheet a little breathing room inside the viewport.
+      const fit = el.clientHeight / (PAGE_HEIGHT * 1.06);
+      setFitZoom(Math.min(1, Math.max(0.4, Math.round(fit * 100) / 100)));
+    };
+    const ro = new ResizeObserver(recompute);
+    ro.observe(el);
+    scrollObserverRef.current = ro;
+    recompute();
+  }, []);
   // Read by the gesture handler, which must not compute from `zoom` state:
   // React may invoke a state updater more than once, and doing scroll maths
   // inside one would apply the pan twice.
@@ -469,6 +549,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
     zoomRef.current = zoom;
   }, [zoom]);
   const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
+  // True between the second finger landing and the last one lifting, while the
+  // page is transforming itself outside of React.
+  const gestureActiveRef = useRef(false);
 
   // A callback ref rather than an effect: the page node is not in the tree on
   // first mount, so a []-dep effect found pageRef.current null, never attached
@@ -516,34 +599,52 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // Pinch centre relative to the scroll container's own viewport.
     const px = cx - rect.left;
     const py = cy - rect.top;
-    // Base the maths on the scroll position already decided but not yet
-    // written to the DOM. A pinch delivers many samples per frame and React
-    // batches them into one render, so el.scrollLeft still reads its old
-    // value on every sample after the first — compounding against it threw
-    // away all but the last step and left the page far from the fingers.
-    const baseLeft = pendingScrollRef.current?.left ?? el.scrollLeft;
-    const baseTop = pendingScrollRef.current?.top ?? el.scrollTop;
+    // Below 1:1 the sizer is narrower than the viewport and `marginInline:
+    // auto` centres it, so content x=0 does not sit at scroll 0. That offset
+    // changes as the scale crosses the fit-width point and has to come out of
+    // the maths, or zooming out drifts sideways.
+    const gutter = (z: number) =>
+      natural.w ? Math.max(0, (el.clientWidth - natural.w * z) / 2) : 0;
+    // Content coordinate currently under the pinch centre.
+    const contentX = (el.scrollLeft + px - gutter(prev)) / prev;
     // Zoom about the pinch centre rather than a fixed origin: the content
     // under the fingers has to stay under the fingers, which is what lets a
     // student pinch into a corner and write in that spot. The two-finger drag
     // pans on top of it, so pinch and pan compose in one gesture.
     // Clamp at the near edge: the DOM clamps a negative scroll to 0 anyway,
-    // and letting a negative accumulate inside a batch would drag the page
-    // further off with every sample.
-    const left = Math.max(0, (baseLeft + px) * ratio - px - dx);
-    const top = Math.max(0, (baseTop + py) * ratio - py - dy);
+    // and letting a negative accumulate would drag the page further off with
+    // every sample.
+    const left = Math.max(0, gutter(next) + contentX * next - px - dx);
+    // No vertical centring, so the ratio form is exact here.
+    const top = Math.max(0, (el.scrollTop + py) * ratio - py - dy);
 
     if (ratio === 1) {
       // Already at a zoom limit — this is a pure pan.
-      pendingScrollRef.current = null;
       el.scrollLeft = left;
       el.scrollTop = top;
       return;
     }
+
+    // Drive the transform straight from the gesture. Calling setZoom here
+    // re-rendered this whole component on every pinch sample, which is what
+    // made zooming feel sluggish; React is told once, when the fingers lift.
     zoomRef.current = next;
-    // Applied after the scaled layout commits, below.
-    pendingScrollRef.current = { left, top };
-    setZoom(next);
+    gestureActiveRef.current = true;
+    const styles = zoomStyles(next, natural);
+    applyStyle(sizerRef.current, styles.sizer as Record<string, unknown>);
+    applyStyle(pageRef.current, styles.page as Record<string, unknown> | undefined);
+    el.scrollLeft = left;
+    el.scrollTop = top;
+  };
+
+  // The fingers left the glass: hand the final scale back to React so the
+  // rendered styles and the live DOM agree again.
+  const handleGestureEnd = () => {
+    if (!gestureActiveRef.current) return;
+    gestureActiveRef.current = false;
+    const el = scrollRef.current;
+    if (el) pendingScrollRef.current = { left: el.scrollLeft, top: el.scrollTop };
+    setZoom(zoomRef.current);
   };
 
   // Scroll must land in the same frame the new scale paints, or the page
@@ -1200,6 +1301,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
           canRedo={ink.canRedo}
           zoom={zoom}
           setZoom={(z) => setZoom(clampZoom(z))}
+          minZoom={fitZoom}
         />
       )}
 
@@ -1218,47 +1320,18 @@ export function NoteEditor({ noteId, onClose }: Props) {
           // the page from jumping under the student's hand.
           transition: "padding-bottom 150ms ease-out",
         }}
-        ref={scrollRef}
+        ref={setScrollRef}
         className={`flex-1 min-h-0 overflow-auto${annotationMode !== "none" ? " annotating" : ""}`}
       >
         {/* Sizer: reserves the *scaled* footprint. A CSS transform paints
-            outside the layout box without enlarging it, so without this the
+            outside its layout box without enlarging it, so without this the
             scroll container never grows and the zoomed-in corners of the page
             simply cannot be scrolled to. */}
-        <div
-          style={
-            zoom === 1
-              ? { minHeight: "100%" }
-              : {
-                  width: natural.w * zoom,
-                  height: natural.h * zoom,
-                  marginInline: "auto",
-                }
-          }
-        >
+        <div ref={sizerRef} style={zoomStyles(zoom, natural).sizer}>
           <div
             ref={setPageRef}
             className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8"
-            style={
-              zoom === 1
-                ? undefined
-                : {
-                    // Pin to the measured natural size: `w-full` would resolve
-                    // against the enlarged sizer and scale a second time.
-                    width: natural.w,
-                    maxWidth: "none",
-                    // min-h-full against an enlarged sizer would feed back into
-                    // the measurement above.
-                    minHeight: 0,
-                    // Centring is the sizer's job; auto margins here would
-                    // offset the page and break the focal-point scroll maths.
-                    marginInline: 0,
-                    transform: `scale(${zoom})`,
-                    // Scale from the top-left so scroll offsets map linearly
-                    // onto content coordinates.
-                    transformOrigin: "0 0",
-                  }
-            }
+            style={zoomStyles(zoom, natural).page}
           >
             {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
             <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
@@ -1445,6 +1518,61 @@ export function NoteEditor({ noteId, onClose }: Props) {
               </Popover>
             </div>
 
+            {/* Generate Study Guide */}
+            <button
+              onClick={() => setGuideOpen(true)}
+              disabled={plainBodyLength < 20}
+              className="group mb-4 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+              aria-label="Generate study guide"
+            >
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
+                <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
+              </span>
+              <span className="flex-1">
+                <span className="block text-[14.5px] font-semibold text-white">
+                  Generate Study Guide
+                </span>
+                <span className="mt-0.5 block text-[12.5px] text-white/80">
+                  {plainBodyLength < 20
+                    ? "Write a few sentences first…"
+                    : "Key concepts, terms, and practice questions — in seconds."}
+                </span>
+              </span>
+            </button>
+
+            {/* Saved guides */}
+            <section className="mb-6">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </span>
+                  <h3 className="text-[14px] font-semibold tracking-tight">Saved Study Guides</h3>
+                  {savedGuides.length > 0 && (
+                    <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                      {savedGuides.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {savedGuides.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface)]/40 px-4 py-6 text-center text-[13px] text-muted-foreground">
+                  No saved guides yet. Generate one to save it here.
+                </p>
+              ) : (
+                <div className="space-y-2.5">
+                  {savedGuides.map((sg) => (
+                    <SavedGuideRow
+                      key={sg.id}
+                      noteId={noteId}
+                      saved={sg}
+                      onOpen={() => setViewGuide(sg.guide)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
             {/* ── The page ─────────────────────────────────────────────────
               The note "sheet": a distinct bounded, shadowed card that
               flex-grows to fill the available height so short notes still
@@ -1482,7 +1610,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </div>
               ))}
 
-              <div className="relative z-[1]">
+              <div className={cn("relative z-[1]", inkMode !== "off" && "ink-active")}>
                 <EditorContent editor={editor} />
               </div>
               {/* Free-floating text boxes layer (GoodNotes-style) */}
@@ -1497,63 +1625,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 addStroke={ink.addStroke}
                 eraseStrokes={ink.eraseStrokes}
                 onGesture={handleGesture}
+                onGestureEnd={handleGestureEnd}
               />
             </div>
-
-            {/* Generate Study Guide */}
-            <button
-              onClick={() => setGuideOpen(true)}
-              disabled={plainBodyLength < 20}
-              className="group mt-6 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-              aria-label="Generate study guide"
-            >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
-                <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
-              </span>
-              <span className="flex-1">
-                <span className="block text-[14.5px] font-semibold text-white">
-                  Generate Study Guide
-                </span>
-                <span className="mt-0.5 block text-[12.5px] text-white/80">
-                  {plainBodyLength < 20
-                    ? "Write a few sentences first…"
-                    : "Key concepts, terms, and practice questions — in seconds."}
-                </span>
-              </span>
-            </button>
-
-            {/* Saved guides */}
-            <section className="mt-10">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
-                    <Sparkles className="h-3.5 w-3.5" />
-                  </span>
-                  <h3 className="text-[14px] font-semibold tracking-tight">Saved Study Guides</h3>
-                  {savedGuides.length > 0 && (
-                    <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
-                      {savedGuides.length}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {savedGuides.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface)]/40 px-4 py-6 text-center text-[13px] text-muted-foreground">
-                  No saved guides yet. Generate one above to save it here.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {savedGuides.map((sg) => (
-                    <SavedGuideRow
-                      key={sg.id}
-                      noteId={noteId}
-                      saved={sg}
-                      onOpen={() => setViewGuide(sg.guide)}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
           </div>
         </div>
       </div>

@@ -52,6 +52,7 @@ export function InkToolbar({
   canRedo,
   zoom,
   setZoom,
+  minZoom,
 }: {
   mode: InkMode;
   setMode: (m: InkMode) => void;
@@ -65,6 +66,8 @@ export function InkToolbar({
   canRedo: boolean;
   zoom: number;
   setZoom: (z: number) => void;
+  /** Floor for zooming out — the scale that fits a whole page on screen. */
+  minZoom: number;
 }) {
   const palette = mode === "highlighter" ? HIGHLIGHT_INK_COLORS : INK_COLORS;
 
@@ -149,8 +152,8 @@ export function InkToolbar({
           anyone who wants an exact reset. */}
       <button
         type="button"
-        onClick={() => setZoom(Math.max(0.5, Math.round((zoom - 0.25) * 100) / 100))}
-        disabled={zoom <= 0.5}
+        onClick={() => setZoom(Math.max(minZoom, Math.round((zoom - 0.25) * 100) / 100))}
+        disabled={zoom <= minZoom}
         title="Zoom out"
         aria-label="Zoom out"
         className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"

@@ -508,3 +508,9 @@ html.light .tiptap img {
 .note-wiggle:nth-child(4n) {
   animation-delay: 0.04s;
 }
+
+/* While handwriting, the typing placeholder is just clutter sitting under the
+   nib — the student is writing on the page, not into the text editor. */
+.ink-active .tiptap p.is-editor-empty::before {
+  content: none;
+}

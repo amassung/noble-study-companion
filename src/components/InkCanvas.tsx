@@ -113,6 +113,7 @@ export function InkCanvas({
   addStroke,
   eraseStrokes,
   onGesture,
+  onGestureEnd,
 }: {
   noteId: string;
   mode: InkMode;
@@ -124,6 +125,9 @@ export function InkCanvas({
   // cx/cy are the pinch centre in client coords, so the page can zoom about
   // the point between the fingers instead of a fixed origin.
   onGesture?: (g: { scaleBy: number; dx: number; dy: number; cx: number; cy: number }) => void;
+  // Fired when the second finger lifts. The page transforms itself directly
+  // while a pinch is in flight; this is when it commits that back to React.
+  onGestureEnd?: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
@@ -133,8 +137,26 @@ export function InkCanvas({
 
   // Pointer handlers are attached once and must not close over stale props,
   // so the latest values are mirrored here instead of in the dependency list.
-  const propsRef = useRef({ mode, color, size, strokes, addStroke, eraseStrokes, onGesture });
-  propsRef.current = { mode, color, size, strokes, addStroke, eraseStrokes, onGesture };
+  const propsRef = useRef({
+    mode,
+    color,
+    size,
+    strokes,
+    addStroke,
+    eraseStrokes,
+    onGesture,
+    onGestureEnd,
+  });
+  propsRef.current = {
+    mode,
+    color,
+    size,
+    strokes,
+    addStroke,
+    eraseStrokes,
+    onGesture,
+    onGestureEnd,
+  };
 
   const activeRef = useRef<Point[]>([]);
   const drawingRef = useRef(false);
@@ -423,8 +445,10 @@ export function InkCanvas({
 
     const onUp = (e: PointerEvent) => {
       if (e.pointerType === "touch") {
+        const wasGesture = touchesRef.current.size >= 2;
         touchesRef.current.delete(e.pointerId);
         syncGesture();
+        if (wasGesture && touchesRef.current.size < 2) propsRef.current.onGestureEnd?.();
       }
       try {
         host.releasePointerCapture(e.pointerId);
