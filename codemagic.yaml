@@ -106,6 +106,28 @@ workflows:
           keychain add-certificates
           xcode-project use-profiles
 
+      - name: Resolve Swift packages
+        script: |
+          set -e
+          # Capacitor 8 uses SPM: App.xcodeproj references the local CapApp-SPM
+          # package, which in turn pulls capacitor-swift-pm from GitHub. No
+          # Package.resolved is committed, so a cold CI machine must resolve at
+          # build time. `xcode-project build-ipa` starts with -showBuildSettings,
+          # and if resolution fails there it reports only "Failed to show build
+          # settings" — the real cause never reaches the log. Resolving here
+          # first fails loudly with the actual error instead.
+          xcodebuild -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -resolvePackageDependencies
+
+          # Print the settings xcodebuild will actually use. If this still
+          # fails, the error text lands at the end of the log where it is
+          # readable rather than scrolled off above a retry.
+          echo "--- build settings ---"
+          xcodebuild -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -showBuildSettings 2>&1 | grep -E "PRODUCT_BUNDLE_IDENTIFIER|IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_NAME|CODE_SIGN" || true
+
       - name: Build IPA
         script: |
           # CFBundleVersion in Info.plist is $(CURRENT_PROJECT_VERSION), so
