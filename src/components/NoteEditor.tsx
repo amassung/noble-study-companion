@@ -657,6 +657,35 @@ export function NoteEditor({ noteId, onClose }: Props) {
     el.scrollLeft = pending.left;
     el.scrollTop = pending.top;
   }, [zoom]);
+  // The typing placeholder is hidden while a nib is active, and stays hidden
+  // once the page carries handwriting: "Start writing your notes here…" sitting
+  // across someone's equations reads as clutter, not an invitation.
+  const hidePlaceholder = inkMode !== "off" || ink.strokes.length > 0;
+
+  /**
+   * Put the text caret where the student tapped.
+   *
+   * In select mode the ink canvas covers the page and swallows the tap, so a
+   * tap on blank paper has to be forwarded here or typing would be
+   * unreachable without leaving the tool.
+   */
+  const placeCaretAt = (clientX: number, clientY: number) => {
+    if (!editor) return;
+    const doc = document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    };
+    const range = doc.caretRangeFromPoint?.(clientX, clientY);
+    const dom = editor.view.dom;
+    if (range && dom.contains(range.startContainer)) {
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      editor.commands.focus();
+      return;
+    }
+    editor.commands.focus("end");
+  };
+
   const [inkColor, setInkColor] = useState<string>(INK_COLORS[0].value);
   const [inkSize, setInkSize] = useState(5);
   // Until the user picks a colour themselves, follow the paper: dark ink on
@@ -1610,7 +1639,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </div>
               ))}
 
-              <div className={cn("relative z-[1]", inkMode !== "off" && "ink-active")}>
+              <div className={cn("relative z-[1]", hidePlaceholder && "ink-active")}>
                 <EditorContent editor={editor} />
               </div>
               {/* Free-floating text boxes layer (GoodNotes-style) */}
@@ -1626,6 +1655,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 eraseStrokes={ink.eraseStrokes}
                 onGesture={handleGesture}
                 onGestureEnd={handleGestureEnd}
+                moveStrokes={ink.moveStrokes}
+                onTapEmpty={placeCaretAt}
               />
             </div>
           </div>

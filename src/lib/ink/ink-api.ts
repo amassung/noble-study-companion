@@ -88,3 +88,36 @@ export async function deleteStrokes(ids: string[]): Promise<void> {
   const { error } = await supabase.from("note_ink").delete().in("id", ids).eq("user_id", userId);
   if (error) throw error;
 }
+
+/** A moved or resized stroke: new geometry for an existing row. */
+export interface StrokeGeometry {
+  id: string;
+  points: [number, number, number][];
+  size: number;
+}
+
+/**
+ * Rewrite the geometry of strokes that were dragged or scaled.
+ *
+ * Requires the note_ink UPDATE policy added in 20260823010000 — without it
+ * RLS matches zero rows and reports no error, so the move silently reverts.
+ */
+export async function updateStrokeGeometry(updates: StrokeGeometry[]): Promise<void> {
+  if (!updates.length) return;
+  const supabase = getSupabaseClient();
+  const results = await Promise.all(
+    updates.map((u) =>
+      supabase
+        .from("note_ink")
+        .update({ points: u.points, size: u.size })
+        .eq("id", u.id)
+        .select("id"),
+    ),
+  );
+  for (const { error, data } of results) {
+    if (error) throw error;
+    // Zero rows back means the policy rejected it rather than the row being
+    // missing; surface that instead of pretending the move was saved.
+    if (!data || data.length === 0) throw new Error("Stroke update affected no rows");
+  }
+}

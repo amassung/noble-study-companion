@@ -1,6 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import type { InkStroke } from "./ink-api";
-import { useCreateStrokeMutation, useDeleteStrokesMutation, useInk } from "./use-ink";
+import type { InkStroke, StrokeGeometry } from "./ink-api";
+import {
+  useCreateStrokeMutation,
+  useDeleteStrokesMutation,
+  useInk,
+  useUpdateStrokeGeometryMutation,
+} from "./use-ink";
 
 type StrokeInput = Pick<InkStroke, "points" | "color" | "size" | "tool">;
 
@@ -8,7 +13,12 @@ type StrokeInput = Pick<InkStroke, "points" | "color" | "size" | "tool">;
  * One reversible ink edit. `strokes` holds the affected strokes so undo can
  * either remove them (an add) or put them back (an erase).
  */
-type Op = { type: "add"; strokes: InkStroke[] } | { type: "erase"; strokes: InkStroke[] };
+type Op =
+  | { type: "add"; strokes: InkStroke[] }
+  | { type: "erase"; strokes: InkStroke[] }
+  // A move or resize: same rows, different geometry, so undo is a straight
+  // write-back rather than a delete/re-create.
+  | { type: "geometry"; before: StrokeGeometry[]; after: StrokeGeometry[] };
 
 /**
  * Ink editing with undo/redo.
@@ -25,6 +35,7 @@ export function useInkHistory(noteId: string) {
   const { data: strokes = [] } = useInk(noteId);
   const createStroke = useCreateStrokeMutation(noteId);
   const deleteStrokes = useDeleteStrokesMutation(noteId);
+  const updateGeometry = useUpdateStrokeGeometryMutation(noteId);
 
   // Refs drive the actual work (stable across renders); state mirrors depth so
   // the toolbar can enable/disable its buttons.
@@ -66,6 +77,28 @@ export function useInkHistory(noteId: string) {
     [deleteStrokes, strokes],
   );
 
+  /**
+   * Commit a move/resize of existing strokes.
+   *
+   * Undo restores the geometry the strokes had before the drag, so it is a
+   * geometry op rather than an add/erase pair — the ids stay the same and
+   * nothing has to be re-created.
+   */
+  const moveStrokes = useCallback(
+    (updates: StrokeGeometry[]) => {
+      if (updates.length === 0) return;
+      const before = strokes
+        .filter((s) => updates.some((u) => u.id === s.id))
+        .map((s) => ({ id: s.id, points: s.points, size: s.size }));
+      if (before.length === 0) return;
+      updateGeometry.mutate(updates);
+      undoRef.current.push({ type: "geometry", before, after: updates });
+      redoRef.current = [];
+      sync();
+    },
+    [updateGeometry, strokes],
+  );
+
   /** Re-create strokes, returning them with their new server ids. */
   const restore = useCallback(
     async (toRestore: InkStroke[]): Promise<InkStroke[]> => {
@@ -89,6 +122,9 @@ export function useInkHistory(noteId: string) {
     if (op.type === "add") {
       deleteStrokes.mutate(op.strokes.map((s) => s.id));
       redoRef.current.push(op);
+    } else if (op.type === "geometry") {
+      updateGeometry.mutate(op.before);
+      redoRef.current.push(op);
     } else {
       // Restoring assigns new ids, so the redo entry must carry those or a
       // later redo would try to delete rows that no longer exist.
@@ -96,7 +132,7 @@ export function useInkHistory(noteId: string) {
       redoRef.current.push({ type: "erase", strokes: restored });
     }
     sync();
-  }, [deleteStrokes, restore]);
+  }, [deleteStrokes, restore, updateGeometry]);
 
   const redo = useCallback(async () => {
     const op = redoRef.current.pop();
@@ -105,17 +141,21 @@ export function useInkHistory(noteId: string) {
     if (op.type === "add") {
       const restored = await restore(op.strokes);
       undoRef.current.push({ type: "add", strokes: restored });
+    } else if (op.type === "geometry") {
+      updateGeometry.mutate(op.after);
+      undoRef.current.push(op);
     } else {
       deleteStrokes.mutate(op.strokes.map((s) => s.id));
       undoRef.current.push(op);
     }
     sync();
-  }, [deleteStrokes, restore]);
+  }, [deleteStrokes, restore, updateGeometry]);
 
   return {
     strokes,
     addStroke,
     eraseStrokes,
+    moveStrokes,
     undo,
     redo,
     canUndo: depths.undo > 0,

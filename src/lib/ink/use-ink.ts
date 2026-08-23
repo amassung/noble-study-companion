@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { OFFLINE_MUTATION_KEYS } from "@/lib/offline/mutation-defaults";
-import { type InkStroke, createStroke, deleteStrokes, fetchInk } from "./ink-api";
+import {
+  type InkStroke,
+  type StrokeGeometry,
+  createStroke,
+  deleteStrokes,
+  fetchInk,
+  updateStrokeGeometry,
+} from "./ink-api";
 
 function inkKey(noteId: string) {
   return ["note_ink", noteId] as const;
@@ -79,6 +86,32 @@ export function useDeleteStrokesMutation(noteId: string) {
     onError: (_e, _v, ctx) => {
       qc.setQueryData<InkStroke[]>(inkKey(noteId), ctx?.prev ?? []);
       toast.error("Couldn't erase — check your connection.");
+    },
+  });
+}
+
+export function useUpdateStrokeGeometryMutation(noteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    // Strokes still holding a temporary id have no server row yet; their new
+    // geometry rides along on the insert that is already in flight.
+    mutationFn: (updates: StrokeGeometry[]) =>
+      updateStrokeGeometry(updates.filter((u) => !isTempStrokeId(u.id))),
+    onMutate: async (updates) => {
+      await qc.cancelQueries({ queryKey: inkKey(noteId) });
+      const prev = qc.getQueryData<InkStroke[]>(inkKey(noteId));
+      const byId = new Map(updates.map((u) => [u.id, u]));
+      qc.setQueryData<InkStroke[]>(inkKey(noteId), (cur) =>
+        (cur ?? []).map((s) => {
+          const u = byId.get(s.id);
+          return u ? { ...s, points: u.points, size: u.size } : s;
+        }),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      qc.setQueryData<InkStroke[]>(inkKey(noteId), ctx?.prev ?? []);
+      toast.error("Couldn't move that — check your connection.");
     },
   });
 }

@@ -1,8 +1,14 @@
 import { useEffect, useRef } from "react";
 import { getStroke } from "perfect-freehand";
-import type { InkStroke, InkTool } from "@/lib/ink/ink-api";
+import type { InkStroke, InkTool, StrokeGeometry } from "@/lib/ink/ink-api";
 
-export type InkMode = "off" | "pen" | "pencil" | "fineliner" | "highlighter" | "eraser";
+export type InkMode = "off" | "select" | "pen" | "pencil" | "fineliner" | "highlighter" | "eraser";
+
+/** A selection rectangle in host pixels (x absolute, y from the page top). */
+type Box = { x: number; y: number; w: number; h: number };
+
+// Corner grab size, in px. Generous because a fingertip is not a mouse.
+const HANDLE = 11;
 
 type Point = [number, number, number];
 
@@ -114,6 +120,8 @@ export function InkCanvas({
   eraseStrokes,
   onGesture,
   onGestureEnd,
+  moveStrokes,
+  onTapEmpty,
 }: {
   noteId: string;
   mode: InkMode;
@@ -128,6 +136,10 @@ export function InkCanvas({
   // Fired when the second finger lifts. The page transforms itself directly
   // while a pinch is in flight; this is when it commits that back to React.
   onGestureEnd?: () => void;
+  /** Commit a move/resize of existing strokes. */
+  moveStrokes?: (updates: StrokeGeometry[]) => void;
+  /** A tap on blank page in select mode — the caller puts the caret there. */
+  onTapEmpty?: (clientX: number, clientY: number) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
@@ -146,6 +158,8 @@ export function InkCanvas({
     eraseStrokes,
     onGesture,
     onGestureEnd,
+    moveStrokes,
+    onTapEmpty,
   });
   propsRef.current = {
     mode,
@@ -156,6 +170,8 @@ export function InkCanvas({
     eraseStrokes,
     onGesture,
     onGestureEnd,
+    moveStrokes,
+    onTapEmpty,
   };
 
   const activeRef = useRef<Point[]>([]);
@@ -172,6 +188,33 @@ export function InkCanvas({
   // Set by the effect below so prop changes can trigger a repaint without
   // tearing down and re-attaching the pointer handlers.
   const repaintRef = useRef<(() => void) | null>(null);
+
+  // ── Selection (arrow tool) ────────────────────────────────────────────────
+  // Held in refs, never state: dragging a selection must not re-render this
+  // component, for the same reason drawing must not.
+  const selectionRef = useRef<{ ids: string[]; box: Box } | null>(null);
+  const marqueeRef = useRef<Box | null>(null);
+  // Strokes hidden from the base canvas because they are mid-drag and being
+  // drawn, transformed, on the live canvas instead.
+  const hiddenRef = useRef<Set<string>>(new Set());
+  // Where a marquee began, in both host and client coords — the latter so a
+  // tap that turns out not to be a lasso can be forwarded as a caret click.
+  const drawStartRef = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(
+    null,
+  );
+  const dragRef = useRef<{
+    kind: "move" | "resize";
+    // Fixed point of a resize: the corner opposite the one being dragged.
+    ax: number;
+    ay: number;
+    startX: number;
+    startY: number;
+    box: Box;
+    sx: number;
+    sy: number;
+    dx: number;
+    dy: number;
+  } | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -243,8 +286,63 @@ export function InkCanvas({
       ctx.setTransform(dims.dpr, 0, 0, dims.dpr, 0, 0);
       ctx.clearRect(0, 0, dims.w, dims.h);
       for (const s of propsRef.current.strokes) {
+        // Mid-drag the selection is drawn transformed on the live canvas; if
+        // it also stayed here the original would sit underneath as a ghost.
+        if (hiddenRef.current.has(s.id)) continue;
         renderTo(ctx, dims.w, s.points, s.color, s.size, s.tool);
       }
+    };
+
+    /** Bounding box of the given strokes, in host px. */
+    const boundsOf = (ids: string[], w: number): Box | null => {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const st of propsRef.current.strokes) {
+        if (!ids.includes(st.id)) continue;
+        // Half the nib width spills past the centre line on each side.
+        const pad = st.size / 2;
+        for (const [x, y] of st.points) {
+          minX = Math.min(minX, x * w - pad);
+          maxX = Math.max(maxX, x * w + pad);
+          minY = Math.min(minY, y - pad);
+          maxY = Math.max(maxY, y + pad);
+        }
+      }
+      if (minX === Infinity) return null;
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    };
+
+    /** Move/scale one point under the drag in flight. */
+    const transformPoint = (pt: Point, w: number): Point => {
+      const d = dragRef.current;
+      if (!d) return pt;
+      const x = pt[0] * w;
+      const y = pt[1];
+      return [(d.ax + (x - d.ax) * d.sx + d.dx) / w, d.ay + (y - d.ay) * d.sy + d.dy, pt[2]];
+    };
+
+    const drawSelectionChrome = (ctx: CanvasRenderingContext2D, box: Box) => {
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#7c3aed";
+      ctx.strokeRect(box.x, box.y, box.w, box.h);
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#ffffff";
+      for (const [hx, hy] of [
+        [box.x, box.y],
+        [box.x + box.w, box.y],
+        [box.x, box.y + box.h],
+        [box.x + box.w, box.y + box.h],
+      ]) {
+        ctx.beginPath();
+        ctx.rect(hx - HANDLE / 2, hy - HANDLE / 2, HANDLE, HANDLE);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
     };
 
     const paintLive = () => {
@@ -254,10 +352,52 @@ export function InkCanvas({
       if (!ctx) return;
       ctx.setTransform(dims.dpr, 0, 0, dims.dpr, 0, 0);
       ctx.clearRect(0, 0, dims.w, dims.h);
-      const pts = activeRef.current;
-      if (!pts.length) return;
       const { color: c, size: s, mode: m } = propsRef.current;
-      renderTo(ctx, dims.w, pts, c, s, isDrawTool(m) ? m : "pen");
+
+      // The stroke under the nib.
+      const pts = activeRef.current;
+      if (pts.length) renderTo(ctx, dims.w, pts, c, s, isDrawTool(m) ? m : "pen");
+
+      // A selection being dragged, drawn at its new position.
+      const drag = dragRef.current;
+      const sel = selectionRef.current;
+      if (drag && sel) {
+        const scale = (drag.sx + drag.sy) / 2;
+        for (const st of propsRef.current.strokes) {
+          if (!sel.ids.includes(st.id)) continue;
+          renderTo(
+            ctx,
+            dims.w,
+            st.points.map((pt) => transformPoint(pt, dims.w)),
+            st.color,
+            st.size * scale,
+            st.tool,
+          );
+        }
+      }
+
+      // Chrome last, so it sits above the ink.
+      if (sel) {
+        const box = drag
+          ? {
+              x: drag.ax + (sel.box.x - drag.ax) * drag.sx + drag.dx,
+              y: drag.ay + (sel.box.y - drag.ay) * drag.sy + drag.dy,
+              w: sel.box.w * drag.sx,
+              h: sel.box.h * drag.sy,
+            }
+          : sel.box;
+        drawSelectionChrome(ctx, box);
+      }
+      const mq = marqueeRef.current;
+      if (mq) {
+        ctx.save();
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = "#7c3aed";
+        ctx.fillStyle = "rgba(124,58,237,0.08)";
+        ctx.fillRect(mq.x, mq.y, mq.w, mq.h);
+        ctx.strokeRect(mq.x, mq.y, mq.w, mq.h);
+        ctx.restore();
+      }
     };
 
     // Coalesce every sample that arrives within one frame into a single paint.
@@ -277,6 +417,19 @@ export function InkCanvas({
 
     // Expose repaint to the effects below without re-creating the handlers.
     repaintRef.current = () => {
+      // A selection holds stroke ids, and ids are not stable: a freshly drawn
+      // stroke carries a temporary one until its insert returns, then swaps to
+      // the server id. Left alone, the selection would keep pointing at ids
+      // that no longer exist — the box still drew, but every move and resize
+      // matched zero strokes and silently did nothing. Re-anchor it here, and
+      // drop it entirely if nothing it referred to survived.
+      const sel = selectionRef.current;
+      if (sel && !dragRef.current) {
+        const present = new Set(propsRef.current.strokes.map((s) => s.id));
+        const ids = sel.ids.filter((id) => present.has(id));
+        const box = ids.length ? boundsOf(ids, host.offsetWidth || 1) : null;
+        selectionRef.current = box ? { ids, box } : null;
+      }
       paintBase();
       paintLive();
     };
@@ -354,6 +507,80 @@ export function InkCanvas({
       scheduleLive();
     };
 
+    /** Which corner handle, if any, is under this point. */
+    const handleAt = (px: number, py: number, box: Box): string | null => {
+      const near = (a: number, b: number) => Math.abs(a - b) <= HANDLE;
+      const l = near(px, box.x);
+      const r = near(px, box.x + box.w);
+      const t = near(py, box.y);
+      const b = near(py, box.y + box.h);
+      if (l && t) return "nw";
+      if (r && t) return "ne";
+      if (l && b) return "sw";
+      if (r && b) return "se";
+      return null;
+    };
+
+    /** The topmost stroke under this point, if any. */
+    const strokeAt = (px: number, py: number, w: number): string | null => {
+      const list = propsRef.current.strokes;
+      for (let i = list.length - 1; i >= 0; i--) {
+        const st = list[i];
+        const hit = Math.max(10, st.size);
+        for (let j = 1; j < st.points.length; j++) {
+          const ax = st.points[j - 1][0] * w;
+          const ay = st.points[j - 1][1];
+          const bx = st.points[j][0] * w;
+          const by = st.points[j][1];
+          if (distToSegment(px, py, ax, ay, bx, by) <= hit) return st.id;
+        }
+      }
+      return null;
+    };
+
+    /** Write the finished drag back through the caller. */
+    const commitDrag = (w: number) => {
+      const drag = dragRef.current;
+      const sel = selectionRef.current;
+      if (!drag || !sel) {
+        dragRef.current = null;
+        return;
+      }
+      const moved = drag.dx !== 0 || drag.dy !== 0 || drag.sx !== 1 || drag.sy !== 1;
+      if (moved) {
+        const scale = (drag.sx + drag.sy) / 2;
+        const updates: StrokeGeometry[] = [];
+        for (const st of propsRef.current.strokes) {
+          if (!sel.ids.includes(st.id)) continue;
+          updates.push({
+            id: st.id,
+            // transformPoint reads dragRef, so the drag has to still be in
+            // place here — clearing it first silently returns the points
+            // unchanged and the move never happens.
+            points: st.points.map((pt) => transformPoint(pt, w)),
+            size: st.size * scale,
+          });
+        }
+        propsRef.current.moveStrokes?.(updates);
+      }
+      // Carry the box through the same transform. Re-deriving it from the
+      // strokes would read the pre-move geometry: the optimistic cache write
+      // above has not re-rendered this component yet.
+      selectionRef.current = {
+        ids: sel.ids,
+        box: {
+          x: drag.ax + (sel.box.x - drag.ax) * drag.sx + drag.dx,
+          y: drag.ay + (sel.box.y - drag.ay) * drag.sy + drag.dy,
+          w: sel.box.w * drag.sx,
+          h: sel.box.h * drag.sy,
+        },
+      };
+      dragRef.current = null;
+      hiddenRef.current = new Set();
+      paintBase();
+      scheduleLive();
+    };
+
     const onDown = (e: PointerEvent) => {
       if (propsRef.current.mode === "off") return;
 
@@ -372,6 +599,102 @@ export function InkCanvas({
 
       if (isPalm(e)) return;
       e.preventDefault();
+
+      if (propsRef.current.mode === "select") {
+        const host_w = host.offsetWidth || 1;
+        const pt = pointFrom(e);
+        const px = pt[0] * host_w;
+        const py = pt[1];
+        const sel = selectionRef.current;
+        try {
+          host.setPointerCapture(e.pointerId);
+        } catch {
+          /* capture unavailable */
+        }
+
+        // A corner of the current selection: resize about the far corner.
+        const handle = sel ? handleAt(px, py, sel.box) : null;
+        if (sel && handle) {
+          const ax = handle === "ne" || handle === "se" ? sel.box.x : sel.box.x + sel.box.w;
+          const ay = handle === "sw" || handle === "se" ? sel.box.y : sel.box.y + sel.box.h;
+          dragRef.current = {
+            kind: "resize",
+            ax,
+            ay,
+            startX: px,
+            startY: py,
+            box: sel.box,
+            sx: 1,
+            sy: 1,
+            dx: 0,
+            dy: 0,
+          };
+          hiddenRef.current = new Set(sel.ids);
+          paintBase();
+          scheduleLive();
+          return;
+        }
+
+        // Inside the current selection, or on one of its strokes: move it.
+        const inside =
+          sel &&
+          px >= sel.box.x &&
+          px <= sel.box.x + sel.box.w &&
+          py >= sel.box.y &&
+          py <= sel.box.y + sel.box.h;
+        if (sel && inside) {
+          dragRef.current = {
+            kind: "move",
+            ax: 0,
+            ay: 0,
+            startX: px,
+            startY: py,
+            box: sel.box,
+            sx: 1,
+            sy: 1,
+            dx: 0,
+            dy: 0,
+          };
+          hiddenRef.current = new Set(sel.ids);
+          paintBase();
+          scheduleLive();
+          return;
+        }
+
+        // A stroke elsewhere: select just that one and start moving it.
+        const hitId = strokeAt(px, py, host_w);
+        if (hitId) {
+          const box = boundsOf([hitId], host_w);
+          if (box) {
+            selectionRef.current = { ids: [hitId], box };
+            dragRef.current = {
+              kind: "move",
+              ax: 0,
+              ay: 0,
+              startX: px,
+              startY: py,
+              box,
+              sx: 1,
+              sy: 1,
+              dx: 0,
+              dy: 0,
+            };
+            hiddenRef.current = new Set([hitId]);
+            paintBase();
+            scheduleLive();
+          }
+          return;
+        }
+
+        // Blank page: begin a marquee. Whether this turns out to be a lasso
+        // or a plain tap is decided on release.
+        selectionRef.current = null;
+        marqueeRef.current = { x: px, y: py, w: 0, h: 0 };
+        drawStartRef.current = { x: px, y: py, clientX: e.clientX, clientY: e.clientY };
+        scheduleLive();
+        return;
+      }
+
       // Pointer capture keeps the stroke alive if the pen briefly leaves the
       // canvas, but it can throw (e.g. the pointer is already gone). Never let
       // that abort the stroke — losing handwriting is worse than losing capture.
@@ -417,6 +740,44 @@ export function InkCanvas({
         }
       }
 
+      if (propsRef.current.mode === "select") {
+        const host_w = host.offsetWidth || 1;
+        const pt = pointFrom(e);
+        const px = pt[0] * host_w;
+        const py = pt[1];
+        const drag = dragRef.current;
+        if (drag) {
+          e.preventDefault();
+          if (drag.kind === "move") {
+            drag.dx = px - drag.startX;
+            drag.dy = py - drag.startY;
+          } else {
+            // Guard against a zero-width denominator when a corner is grabbed
+            // exactly on the anchor axis, and against flipping through zero.
+            const spanX = drag.startX - drag.ax;
+            const spanY = drag.startY - drag.ay;
+            drag.sx = Math.abs(spanX) < 1 ? 1 : Math.max(0.1, (px - drag.ax) / spanX);
+            drag.sy = Math.abs(spanY) < 1 ? 1 : Math.max(0.1, (py - drag.ay) / spanY);
+          }
+          scheduleLive();
+          return;
+        }
+        if (marqueeRef.current) {
+          e.preventDefault();
+          const st = drawStartRef.current;
+          if (st) {
+            marqueeRef.current = {
+              x: Math.min(st.x, px),
+              y: Math.min(st.y, py),
+              w: Math.abs(px - st.x),
+              h: Math.abs(py - st.y),
+            };
+            scheduleLive();
+          }
+        }
+        return;
+      }
+
       if (!drawingRef.current || isPalm(e)) return;
       e.preventDefault();
 
@@ -444,6 +805,41 @@ export function InkCanvas({
     };
 
     const onUp = (e: PointerEvent) => {
+      if (propsRef.current.mode === "select") {
+        const host_w = host.offsetWidth || 1;
+        try {
+          host.releasePointerCapture(e.pointerId);
+        } catch {
+          /* already released */
+        }
+        if (dragRef.current) {
+          commitDrag(host_w);
+          return;
+        }
+        const mq = marqueeRef.current;
+        marqueeRef.current = null;
+        const st = drawStartRef.current;
+        drawStartRef.current = null;
+        if (mq && (mq.w > 6 || mq.h > 6)) {
+          // Lasso: take every stroke whose points all sit inside the box, so
+          // half-caught neighbours are not dragged along by accident.
+          const ids = propsRef.current.strokes
+            .filter((s2) =>
+              s2.points.every(
+                ([x, y]) =>
+                  x * host_w >= mq.x && x * host_w <= mq.x + mq.w && y >= mq.y && y <= mq.y + mq.h,
+              ),
+            )
+            .map((s2) => s2.id);
+          const box = ids.length ? boundsOf(ids, host_w) : null;
+          selectionRef.current = box ? { ids, box } : null;
+        } else if (st) {
+          // A tap on blank page: let the caller put the text caret there.
+          propsRef.current.onTapEmpty?.(st.clientX, st.clientY);
+        }
+        scheduleLive();
+        return;
+      }
       if (e.pointerType === "touch") {
         const wasGesture = touchesRef.current.size >= 2;
         touchesRef.current.delete(e.pointerId);
@@ -503,6 +899,14 @@ export function InkCanvas({
   }, []);
 
   useEffect(() => {
+    // Leaving the arrow tool drops the selection: a dashed box left floating
+    // over the page while the pen is active is just confusing.
+    if (mode !== "select" && selectionRef.current) {
+      selectionRef.current = null;
+      marqueeRef.current = null;
+      dragRef.current = null;
+      hiddenRef.current = new Set();
+    }
     repaintRef.current?.();
   }, [strokes, color, size, mode]);
 

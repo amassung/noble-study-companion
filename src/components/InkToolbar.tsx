@@ -116,7 +116,7 @@ export function InkToolbar({
 
   return (
     <div className="flex flex-wrap items-center gap-1 border-b border-border/40 bg-[var(--surface-elevated)]/95 px-3 py-2 backdrop-blur-sm sm:px-5">
-      <Tool value="off" icon={<MousePointer2 className="h-4 w-4" />} label="Select / type" />
+      <Tool value="select" icon={<MousePointer2 className="h-4 w-4" />} label="Select" />
       <Tool value="pen" icon={<Pen className="h-4 w-4" />} label="Pen" />
       <Tool value="pencil" icon={<Pencil className="h-4 w-4" />} label="Pencil" />
       <Tool value="fineliner" icon={<PenLine className="h-4 w-4" />} label="Fine point" />
@@ -180,7 +180,8 @@ export function InkToolbar({
         <ZoomIn className="h-4 w-4" />
       </button>
 
-      {mode !== "off" && mode !== "eraser" && (
+      {/* Colour and nib size mean nothing for the arrow or the eraser. */}
+      {mode !== "off" && mode !== "eraser" && mode !== "select" && (
         <>
           <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
           {palette.map((c) => (
