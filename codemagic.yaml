@@ -109,6 +109,14 @@ workflows:
       - name: Resolve Swift packages
         script: |
           set -e
+          # A shared scheme that fails to parse is silently ignored, and
+          # xcodebuild then reports "Scheme App is not currently configured for
+          # the build action" — which reads like a project misconfiguration
+          # rather than malformed XML. Check it directly so the real cause is
+          # named. (An XML comment containing a double hyphen caused exactly
+          # this and cost several build cycles to find.)
+          xmllint --noout "$XCODE_PROJECT/xcshareddata/xcschemes/$XCODE_SCHEME.xcscheme"
+
           # Capacitor 8 uses SPM: App.xcodeproj references the local CapApp-SPM
           # package, which in turn pulls capacitor-swift-pm from GitHub. No
           # Package.resolved is committed, so a cold CI machine must resolve at

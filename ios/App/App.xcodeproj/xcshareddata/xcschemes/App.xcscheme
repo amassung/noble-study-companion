@@ -3,9 +3,14 @@
   Shared scheme for the "App" target.
 
   Xcode only creates schemes under xcuserdata/ (per-user, gitignored), so a
-  cloud build has no scheme to reference and `build-ipa --scheme App` fails
-  with "scheme not found". Committing this shared scheme is what makes the
-  Codemagic build work without anyone opening Xcode.
+  cloud build has no scheme to reference and build-ipa fails with "scheme not
+  found". Committing this shared scheme is what makes the Codemagic build work
+  without anyone opening Xcode.
+
+  Keep this comment free of double hyphens: they are illegal inside an XML
+  comment, and a scheme that fails to parse is reported by xcodebuild as
+  "Scheme App is not currently configured for the build action", which points
+  nowhere near the real cause.
 -->
 <Scheme
    LastUpgradeVersion = "1500"
