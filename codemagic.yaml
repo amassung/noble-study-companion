@@ -76,6 +76,17 @@ workflows:
           # issue the distribution certificate and provisioning profile on the
           # first run. Credentials come from the app_store_connect integration.
           set -e
+          # Fail with a readable message instead of argparse dumping usage:
+          # an unset CERTIFICATE_PRIVATE_KEY makes @env: unresolvable, which
+          # exits 2 with a wall of help text that hides the real cause.
+          if [ -z "$CERTIFICATE_PRIVATE_KEY" ]; then
+            echo "ERROR: CERTIFICATE_PRIVATE_KEY is not set."
+            echo "Add it in Codemagic → app → Environment variables:"
+            echo "  name:  CERTIFICATE_PRIVATE_KEY"
+            echo "  value: contents of your PEM private key"
+            echo "  mark it Secure."
+            exit 1
+          fi
           keychain initialize
           # Apple stores only the public certificate; the private key stays on
           # whoever generated it. Without supplying one, a certificate created
