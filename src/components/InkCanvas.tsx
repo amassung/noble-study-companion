@@ -193,7 +193,10 @@ export function InkCanvas({
   // Held in refs, never state: dragging a selection must not re-render this
   // component, for the same reason drawing must not.
   const selectionRef = useRef<{ ids: string[]; box: Box } | null>(null);
-  const marqueeRef = useRef<Box | null>(null);
+  // The freehand lasso being drawn, in host px. GoodNotes lassos by loop, not
+  // by rectangle, and a loop is what lets you pick one line out of a page of
+  // slanted handwriting without catching its neighbours.
+  const lassoRef = useRef<{ x: number; y: number }[] | null>(null);
   // Strokes hidden from the base canvas because they are mid-drag and being
   // drawn, transformed, on the live canvas instead.
   const hiddenRef = useRef<Set<string>>(new Set());
@@ -324,25 +327,48 @@ export function InkCanvas({
     };
 
     const drawSelectionChrome = (ctx: CanvasRenderingContext2D, box: Box) => {
+      // A little breathing room so the outline never clips the ink it holds.
+      const b = { x: box.x - 6, y: box.y - 6, w: box.w + 12, h: box.h + 12 };
       ctx.save();
+      ctx.beginPath();
+      const rr = 8;
+      ctx.roundRect(b.x, b.y, b.w, b.h, rr);
+      ctx.fillStyle = "rgba(124,58,237,0.06)";
+      ctx.fill();
       ctx.setLineDash([6, 4]);
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#7c3aed";
-      ctx.strokeRect(box.x, box.y, box.w, box.h);
+      ctx.strokeStyle = "rgba(124,58,237,0.9)";
+      ctx.stroke();
+
       ctx.setLineDash([]);
-      ctx.fillStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
       for (const [hx, hy] of [
-        [box.x, box.y],
-        [box.x + box.w, box.y],
-        [box.x, box.y + box.h],
-        [box.x + box.w, box.y + box.h],
+        [b.x, b.y],
+        [b.x + b.w, b.y],
+        [b.x, b.y + b.h],
+        [b.x + b.w, b.y + b.h],
       ]) {
         ctx.beginPath();
-        ctx.rect(hx - HANDLE / 2, hy - HANDLE / 2, HANDLE, HANDLE);
+        ctx.arc(hx, hy, HANDLE / 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
         ctx.fill();
+        ctx.strokeStyle = "#7c3aed";
         ctx.stroke();
       }
       ctx.restore();
+    };
+
+    /** Ray-cast point-in-polygon, for testing strokes against the lasso. */
+    const inPolygon = (px: number, py: number, poly: { x: number; y: number }[]) => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x;
+        const yi = poly[i].y;
+        const xj = poly[j].x;
+        const yj = poly[j].y;
+        if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
     };
 
     const paintLive = () => {
@@ -388,14 +414,19 @@ export function InkCanvas({
           : sel.box;
         drawSelectionChrome(ctx, box);
       }
-      const mq = marqueeRef.current;
-      if (mq) {
+      const lasso = lassoRef.current;
+      if (lasso && lasso.length > 1) {
         ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(lasso[0].x, lasso[0].y);
+        for (let i = 1; i < lasso.length; i++) ctx.lineTo(lasso[i].x, lasso[i].y);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(124,58,237,0.07)";
+        ctx.fill();
         ctx.setLineDash([5, 4]);
+        ctx.lineWidth = 1.5;
         ctx.strokeStyle = "#7c3aed";
-        ctx.fillStyle = "rgba(124,58,237,0.08)";
-        ctx.fillRect(mq.x, mq.y, mq.w, mq.h);
-        ctx.strokeRect(mq.x, mq.y, mq.w, mq.h);
+        ctx.stroke();
         ctx.restore();
       }
     };
@@ -686,10 +717,10 @@ export function InkCanvas({
           return;
         }
 
-        // Blank page: begin a marquee. Whether this turns out to be a lasso
-        // or a plain tap is decided on release.
+        // Blank page: begin a lasso. Whether this turns out to be a loop or
+        // a plain tap is decided on release.
         selectionRef.current = null;
-        marqueeRef.current = { x: px, y: py, w: 0, h: 0 };
+        lassoRef.current = [{ x: px, y: py }];
         drawStartRef.current = { x: px, y: py, clientX: e.clientX, clientY: e.clientY };
         scheduleLive();
         return;
@@ -762,16 +793,13 @@ export function InkCanvas({
           scheduleLive();
           return;
         }
-        if (marqueeRef.current) {
+        if (lassoRef.current) {
           e.preventDefault();
-          const st = drawStartRef.current;
-          if (st) {
-            marqueeRef.current = {
-              x: Math.min(st.x, px),
-              y: Math.min(st.y, py),
-              w: Math.abs(px - st.x),
-              h: Math.abs(py - st.y),
-            };
+          const last = lassoRef.current[lassoRef.current.length - 1];
+          // Thin the path: every sample would bloat the polygon test without
+          // making the loop any more accurate.
+          if (!last || Math.hypot(px - last.x, py - last.y) > 2) {
+            lassoRef.current.push({ x: px, y: py });
             scheduleLive();
           }
         }
@@ -816,20 +844,26 @@ export function InkCanvas({
           commitDrag(host_w);
           return;
         }
-        const mq = marqueeRef.current;
-        marqueeRef.current = null;
+        const lasso = lassoRef.current;
+        lassoRef.current = null;
         const st = drawStartRef.current;
         drawStartRef.current = null;
-        if (mq && (mq.w > 6 || mq.h > 6)) {
-          // Lasso: take every stroke whose points all sit inside the box, so
-          // half-caught neighbours are not dragged along by accident.
+        const xs = lasso ? lasso.map((q) => q.x) : [];
+        const ys = lasso ? lasso.map((q) => q.y) : [];
+        const looped =
+          lasso &&
+          lasso.length > 4 &&
+          (Math.max(...xs) - Math.min(...xs) > 8 || Math.max(...ys) - Math.min(...ys) > 8);
+        if (looped && lasso) {
+          // Majority rule rather than every-point-inside: a loop drawn at
+          // speed always clips a tail or an ascender, and demanding perfect
+          // enclosure made the tool feel broken.
           const ids = propsRef.current.strokes
-            .filter((s2) =>
-              s2.points.every(
-                ([x, y]) =>
-                  x * host_w >= mq.x && x * host_w <= mq.x + mq.w && y >= mq.y && y <= mq.y + mq.h,
-              ),
-            )
+            .filter((s2) => {
+              let inside = 0;
+              for (const [x, y] of s2.points) if (inPolygon(x * host_w, y, lasso)) inside++;
+              return inside / s2.points.length >= 0.6;
+            })
             .map((s2) => s2.id);
           const box = ids.length ? boundsOf(ids, host_w) : null;
           selectionRef.current = box ? { ids, box } : null;
@@ -903,7 +937,7 @@ export function InkCanvas({
     // over the page while the pen is active is just confusing.
     if (mode !== "select" && selectionRef.current) {
       selectionRef.current = null;
-      marqueeRef.current = null;
+      lassoRef.current = null;
       dragRef.current = null;
       hiddenRef.current = new Set();
     }
