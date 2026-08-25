@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool, StrokeGeometry } from "@/lib/ink/ink-api";
+import { inkResolution } from "@/lib/ink/resolution";
 
 export type InkMode = "off" | "select" | "pen" | "pencil" | "fineliner" | "highlighter" | "eraser";
 
@@ -122,6 +123,7 @@ export function InkCanvas({
   onGestureEnd,
   moveStrokes,
   onTapEmpty,
+  zoom = 1,
 }: {
   noteId: string;
   mode: InkMode;
@@ -140,6 +142,13 @@ export function InkCanvas({
   moveStrokes?: (updates: StrokeGeometry[]) => void;
   /** A tap on blank page in select mode — the caller puts the caret there. */
   onTapEmpty?: (clientX: number, clientY: number) => void;
+  /**
+   * Current page scale. Ink is rasterised, so a CSS transform would stretch
+   * the bitmap and the handwriting would go soft exactly the way a zoomed web
+   * page does. Feeding the scale in lets the canvas re-render its strokes at
+   * the zoomed resolution instead, which is what keeps them looking like ink.
+   */
+  zoom?: number;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
@@ -160,6 +169,7 @@ export function InkCanvas({
     onGestureEnd,
     moveStrokes,
     onTapEmpty,
+    zoom,
   });
   propsRef.current = {
     mode,
@@ -172,6 +182,7 @@ export function InkCanvas({
     onGestureEnd,
     moveStrokes,
     onTapEmpty,
+    zoom,
   };
 
   const activeRef = useRef<Point[]>([]);
@@ -230,7 +241,9 @@ export function InkCanvas({
       const w = host.offsetWidth;
       const h = host.offsetHeight;
       if (!w || !h) return null;
-      const dpr = window.devicePixelRatio || 1;
+      // Backing-store resolution follows the zoom so strokes are re-rendered
+      // sharp rather than magnified. See inkResolution for the cap.
+      const dpr = inkResolution(window.devicePixelRatio, propsRef.current.zoom ?? 1);
       for (const c of [base, live]) {
         const pw = Math.round(w * dpr);
         const ph = Math.round(h * dpr);
@@ -942,7 +955,7 @@ export function InkCanvas({
       hiddenRef.current = new Set();
     }
     repaintRef.current?.();
-  }, [strokes, color, size, mode]);
+  }, [strokes, color, size, mode, zoom]);
 
   return (
     <div

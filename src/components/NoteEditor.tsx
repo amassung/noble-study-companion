@@ -56,6 +56,7 @@ import { importPdf, condensePdfContent } from "@/lib/pdf/import-pdf.functions";
 import { uploadSlideImages, uploadNoteImage, MAX_IMAGE_BYTES } from "@/lib/storage/upload-slides";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
+import { LearnSheet } from "@/components/LearnSheet";
 import { MoveToNotebookSheet } from "@/components/MoveToNotebookSheet";
 import type { StudyGuide } from "@/lib/study-guide.functions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -485,6 +486,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("saved");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [learnOpen, setLearnOpen] = useState(false);
   const [viewGuide, setViewGuide] = useState<StudyGuide | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [pdfPhase, setPdfPhase] = useState<PdfPhase>(null);
@@ -552,6 +554,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // True between the second finger landing and the last one lifting, while the
   // page is transforming itself outside of React.
   const gestureActiveRef = useRef(false);
+  // Pan velocity in px/ms, for the glide after the fingers leave the glass.
+  const velocityRef = useRef({ x: 0, y: 0, t: 0 });
+  const glideRef = useRef<number | null>(null);
 
   // A callback ref rather than an effect: the page node is not in the tree on
   // first mount, so a []-dep effect found pageRef.current null, never attached
@@ -592,6 +597,24 @@ export function NoteEditor({ noteId, onClose }: Props) {
   }) => {
     const el = scrollRef.current;
     if (!el) return;
+    // A new gesture cancels any glide still running from the last one.
+    if (glideRef.current !== null) {
+      cancelAnimationFrame(glideRef.current);
+      glideRef.current = null;
+    }
+    const now = performance.now();
+    const dt = now - velocityRef.current.t;
+    if (dt > 0 && dt < 120) {
+      // Smooth the estimate: a single sample is noisy enough to fling the page
+      // sideways when a finger jitters on lift.
+      velocityRef.current = {
+        x: velocityRef.current.x * 0.7 + (dx / dt) * 0.3,
+        y: velocityRef.current.y * 0.7 + (dy / dt) * 0.3,
+        t: now,
+      };
+    } else {
+      velocityRef.current = { x: 0, y: 0, t: now };
+    }
     const prev = zoomRef.current;
     const next = clampZoom(prev * scaleBy);
     const ratio = next / prev;
@@ -640,9 +663,30 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // The fingers left the glass: hand the final scale back to React so the
   // rendered styles and the live DOM agree again.
   const handleGestureEnd = () => {
+    const el = scrollRef.current;
+
+    // Glide: a page that stops dead the instant you lift reads as a web page
+    // being dragged. Carry the velocity and decay it, the way a real sheet of
+    // paper keeps moving under your hand.
+    let { x: vx, y: vy } = velocityRef.current;
+    velocityRef.current = { x: 0, y: 0, t: 0 };
+    if (el && Math.hypot(vx, vy) > 0.05) {
+      const step = () => {
+        vx *= 0.94;
+        vy *= 0.94;
+        if (Math.hypot(vx, vy) < 0.02) {
+          glideRef.current = null;
+          return;
+        }
+        el.scrollLeft -= vx * 16;
+        el.scrollTop -= vy * 16;
+        glideRef.current = requestAnimationFrame(step);
+      };
+      glideRef.current = requestAnimationFrame(step);
+    }
+
     if (!gestureActiveRef.current) return;
     gestureActiveRef.current = false;
-    const el = scrollRef.current;
     if (el) pendingScrollRef.current = { left: el.scrollLeft, top: el.scrollTop };
     setZoom(zoomRef.current);
   };
@@ -1549,7 +1593,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
             {/* Generate Study Guide */}
             <button
-              onClick={() => setGuideOpen(true)}
+              onClick={() => setLearnOpen(true)}
               disabled={plainBodyLength < 20}
               className="group mb-4 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
               aria-label="Generate study guide"
@@ -1559,12 +1603,12 @@ export function NoteEditor({ noteId, onClose }: Props) {
               </span>
               <span className="flex-1">
                 <span className="block text-[14.5px] font-semibold text-white">
-                  Generate Study Guide
+                  Learn this note
                 </span>
                 <span className="mt-0.5 block text-[12.5px] text-white/80">
                   {plainBodyLength < 20
                     ? "Write a few sentences first…"
-                    : "Key concepts, terms, and practice questions — in seconds."}
+                    : "Smart notes, flashcards, practice questions — and ask anything."}
                 </span>
               </span>
             </button>
@@ -1655,6 +1699,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 eraseStrokes={ink.eraseStrokes}
                 onGesture={handleGesture}
                 onGestureEnd={handleGestureEnd}
+                zoom={zoom}
                 moveStrokes={ink.moveStrokes}
                 onTapEmpty={placeCaretAt}
               />
@@ -1664,6 +1709,15 @@ export function NoteEditor({ noteId, onClose }: Props) {
       </div>
 
       {/* ── Modals ────────────────────────────────────────────────────── */}
+      <LearnSheet
+        open={learnOpen}
+        onClose={() => setLearnOpen(false)}
+        note={liveNote}
+        title={title}
+        body={body}
+        onGenerate={() => setGuideOpen(true)}
+      />
+
       {guideOpen && (
         <StudyGuideModal
           open={guideOpen}
