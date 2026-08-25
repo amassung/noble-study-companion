@@ -25,6 +25,8 @@ import type { Subject } from "@/components/NoteCard";
 import type { NotebookColor, PaperTemplate } from "@/lib/notebooks/types";
 import { NOTEBOOK_COLORS, NOTEBOOK_EMOJIS } from "@/lib/notebooks/types";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { fetchInkForNotes } from "@/lib/ink/ink-api";
 
 export const Route = createFileRoute("/notes")({
   head: () => ({ meta: [{ title: "Nobi — My Notes" }] }),
@@ -230,6 +232,17 @@ function NotesPage() {
 
   const currentNotebook = notebooks.find((nb) => nb.id === selectedNotebookId);
 
+  // Handwriting for every note on screen, in one request rather than one per
+  // card. Thumbnails are decorative, so a failure here must never take the
+  // list down with it — the cards simply render their typed content.
+  const visibleIds = visibleNotes.map((n) => n.id);
+  const { data: inkByNote = {} } = useQuery({
+    queryKey: ["ink-thumbnails", visibleIds],
+    queryFn: () => fetchInkForNotes(visibleIds),
+    enabled: visibleIds.length > 0,
+    staleTime: 60_000,
+  });
+
   // Default subject cycles through note count
   const defaultSubjectIndex = allStoredNotes.length % NOTE_SUBJECTS.length;
 
@@ -306,6 +319,9 @@ function NotesPage() {
     date: formatRelative(n.updatedAt),
     guideReady: n.body.length > 240,
     testDate: n.testDate ?? null,
+    body: n.body,
+    ink: inkByNote[n.id],
+    paper: n.paper ?? notebooks.find((nb) => nb.id === n.notebookId)?.paper,
   }));
 
   // ── Notebook view (inside a specific notebook / virtual) ──────────────

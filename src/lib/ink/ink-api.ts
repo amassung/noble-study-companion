@@ -59,6 +59,34 @@ export async function fetchInk(noteId: string): Promise<InkStroke[]> {
   return (data as InkRow[]).map(rowToStroke);
 }
 
+/**
+ * Ink for many notes at once, keyed by note id.
+ *
+ * The notes list draws a real thumbnail of every note, and calling fetchInk
+ * per row would fire one request per note on a screen that routinely shows
+ * dozens. Only the fields a thumbnail needs are selected, and strokes are
+ * capped per note so one heavily-annotated lecture cannot dominate the
+ * payload — a preview a few hundred pixels wide cannot show the difference.
+ */
+export async function fetchInkForNotes(noteIds: string[]): Promise<Record<string, InkStroke[]>> {
+  if (!noteIds.length) return {};
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("note_ink")
+    .select(INK_SELECT)
+    .in("note_id", noteIds)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+
+  const MAX_PER_NOTE = 400;
+  const byNote: Record<string, InkStroke[]> = {};
+  for (const row of data as InkRow[]) {
+    const list = (byNote[row.note_id] ??= []);
+    if (list.length < MAX_PER_NOTE) list.push(rowToStroke(row));
+  }
+  return byNote;
+}
+
 export async function createStroke(
   noteId: string,
   stroke: Pick<InkStroke, "points" | "color" | "size" | "tool">,

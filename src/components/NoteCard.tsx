@@ -1,6 +1,9 @@
 import { Sparkles, Trash2, CalendarClock, Minus } from "lucide-react";
 import { useRef, useState } from "react";
 import { daysUntil, formatTestCountdown } from "@/lib/notes/format";
+import { NoteThumbnail } from "@/components/NoteThumbnail";
+import type { PaperTemplate } from "@/lib/notebooks/types";
+import type { InkStroke } from "@/lib/ink/ink-api";
 
 export type Subject = "violet" | "blue" | "green" | "amber";
 
@@ -47,6 +50,11 @@ export type Note = {
   date: string;
   guideReady?: boolean;
   testDate?: number | null;
+  /** Raw body HTML, for the page thumbnail. */
+  body?: string;
+  /** Handwriting, for the page thumbnail. */
+  ink?: InkStroke[];
+  paper?: PaperTemplate;
 };
 
 type Props = {
@@ -161,9 +169,15 @@ export function NoteCard({ note, style, onOpen, onDelete, editMode = false }: Pr
         }}
         className={`group relative overflow-hidden rounded-xl border border-border/60 bg-[var(--surface)] p-5 shadow-card transition-[box-shadow,opacity,border-color] duration-200 touch-pan-y ${editMode ? "cursor-default select-none opacity-80" : "hover-glow cursor-pointer hover:-translate-y-0.5"}`}
       >
-        <span
-          className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${s.bar} opacity-80 group-hover:opacity-100`}
-        />
+        {/* Page preview — what the note actually looks like. A student picks
+            a lecture out of a long list by recognising the page, not by
+            reading "Untitled note" forty times. */}
+        <div className="relative -mx-5 -mt-5 mb-4 aspect-[4/3] overflow-hidden border-b border-border/50 bg-[var(--paper)] text-foreground">
+          <NoteThumbnail body={note.body ?? ""} ink={note.ink} paper={note.paper} />
+          <span
+            className={`absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r ${s.bar} opacity-90`}
+          />
+        </div>
 
         <div className="flex items-start justify-between gap-3">
           <span
@@ -184,11 +198,6 @@ export function NoteCard({ note, style, onOpen, onDelete, editMode = false }: Pr
         <h3 className="mt-3 line-clamp-1 text-[15px] font-semibold tracking-tight text-foreground">
           {note.title || <span className="text-muted-foreground">Untitled note</span>}
         </h3>
-        <p className="mt-1.5 line-clamp-2 min-h-[2.6em] text-[13px] leading-relaxed text-muted-foreground">
-          {note.preview || (
-            <span className="opacity-60">No content yet — tap to start writing.</span>
-          )}
-        </p>
 
         {note.testDate != null &&
           (() => {
