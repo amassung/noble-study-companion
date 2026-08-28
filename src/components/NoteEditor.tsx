@@ -36,6 +36,7 @@ import {
   AlignCenter,
   AlignRight,
   FileUp,
+  Download,
   FileText,
   GalleryHorizontal,
   BookOpen,
@@ -71,6 +72,7 @@ import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
 import { transcribeHandwriting } from "@/lib/ink/transcribe.functions";
+import { exportNoteToPdf } from "@/lib/export/export-note";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
@@ -517,6 +519,21 @@ export function NoteEditor({ noteId, onClose }: Props) {
    * guides, flashcards, search, Learn — reads the body, so this is what makes
    * a handwritten note studyable at all.
    */
+  /** Export this note as a PDF: typed body as real text, ink as an image. */
+  const exportPdf = () => {
+    try {
+      const { filename, pages } = exportNoteToPdf({
+        title,
+        bodyHtml: body,
+        inkImageDataUrl: inkSnapshotRef.current?.() ?? null,
+        subjectLabel,
+      });
+      toast.success(`Exported ${filename} (${pages} ${pages === 1 ? "page" : "pages"})`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't export this note.");
+    }
+  };
+
   const transcribeInk = async () => {
     const snap = inkSnapshotRef.current?.();
     if (!snap) {
@@ -1394,6 +1411,18 @@ export function NoteEditor({ noteId, onClose }: Props) {
               <FileUp className="h-3.5 w-3.5" />
             )}
             <span className="hidden sm:inline">{pdfBtnLabel}</span>
+          </button>
+
+          {/* Export — the only way a note leaves the app, which matters
+              anywhere work has to be printed or handed in. */}
+          <button
+            onClick={exportPdf}
+            aria-label="Export PDF"
+            title="Export this note as a PDF"
+            className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/50 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Export</span>
           </button>
 
           {/* Delete */}
