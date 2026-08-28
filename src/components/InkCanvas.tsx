@@ -124,6 +124,7 @@ export function InkCanvas({
   moveStrokes,
   onTapEmpty,
   zoom = 1,
+  snapshotRef,
 }: {
   noteId: string;
   mode: InkMode;
@@ -142,6 +143,12 @@ export function InkCanvas({
   moveStrokes?: (updates: StrokeGeometry[]) => void;
   /** A tap on blank page in select mode — the caller puts the caret there. */
   onTapEmpty?: (clientX: number, clientY: number) => void;
+  /**
+   * Filled in with a function that renders the committed ink to a PNG data
+   * URL, so a page of handwriting can be handed to a vision model and read
+   * back as text.
+   */
+  snapshotRef?: { current: (() => string | null) | null };
   /**
    * Current page scale. Ink is rasterised, so a CSS transform would stretch
    * the bitmap and the handwriting would go soft exactly the way a zoomed web
@@ -460,6 +467,59 @@ export function InkCanvas({
     };
 
     // Expose repaint to the effects below without re-creating the handlers.
+    // Render the committed ink as a standalone image: cropped to what was
+    // actually written, flattened onto white, and capped in size. Cropping
+    // matters — a nib-sized mark adrift in a full page of blank pixels is
+    // much harder to read than the same mark filling the frame.
+    if (snapshotRef) {
+      snapshotRef.current = () => {
+        const dims = measure();
+        if (!dims) return null;
+        const src = base;
+        const ctxSrc = src.getContext("2d");
+        if (!ctxSrc) return null;
+        const { width: W, height: H } = src;
+        let minX = W,
+          minY = H,
+          maxX = -1,
+          maxY = -1;
+        const data = ctxSrc.getImageData(0, 0, W, H).data;
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            if (data[(y * W + x) * 4 + 3] > 0) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+        if (maxX < 0) return null; // nothing written
+        const pad = 24;
+        minX = Math.max(0, minX - pad);
+        minY = Math.max(0, minY - pad);
+        maxX = Math.min(W - 1, maxX + pad);
+        maxY = Math.min(H - 1, maxY + pad);
+        const cw = maxX - minX + 1;
+        const ch = maxY - minY + 1;
+        // Long edge capped: past this the model gains nothing and the upload
+        // just gets slower.
+        const MAX = 1568;
+        const k = Math.min(1, MAX / Math.max(cw, ch));
+        const out = document.createElement("canvas");
+        out.width = Math.max(1, Math.round(cw * k));
+        out.height = Math.max(1, Math.round(ch * k));
+        const octx = out.getContext("2d");
+        if (!octx) return null;
+        // Ink is drawn in the page's own colour on a transparent layer; put it
+        // on white so faint or light-coloured strokes still read.
+        octx.fillStyle = "#ffffff";
+        octx.fillRect(0, 0, out.width, out.height);
+        octx.drawImage(src, minX, minY, cw, ch, 0, 0, out.width, out.height);
+        return out.toDataURL("image/png");
+      };
+    }
+
     repaintRef.current = () => {
       // A selection holds stroke ids, and ids are not stable: a freshly drawn
       // stroke carries a temporary one until its insert returns, then swaps to
@@ -947,6 +1007,7 @@ export function InkCanvas({
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       repaintRef.current = null;
+      if (snapshotRef) snapshotRef.current = null;
     };
   }, []);
 

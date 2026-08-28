@@ -70,6 +70,7 @@ import { Type as TypeIcon, PenLine, ImagePlus } from "lucide-react";
 import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
+import { transcribeHandwriting } from "@/lib/ink/transcribe.functions";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
@@ -502,6 +503,55 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // All ink edits go through the history hook so the canvas and the toolbar
   // share one undo stack.
   const ink = useInkHistory(noteId);
+  // Handed a renderer by InkCanvas so the page can be read back as text.
+  const inkSnapshotRef = useRef<(() => string | null) | null>(null);
+  const callTranscribe = useServerFn(transcribeHandwriting);
+  const [transcribing, setTranscribing] = useState(false);
+
+  /**
+   * Turn the handwriting on this page into note text.
+   *
+   * Appended to the body rather than replacing it: the transcript is the
+   * student's own words coming back, and it has to sit alongside anything
+   * they typed, where they can correct it. Everything downstream — study
+   * guides, flashcards, search, Learn — reads the body, so this is what makes
+   * a handwritten note studyable at all.
+   */
+  const transcribeInk = async () => {
+    const snap = inkSnapshotRef.current?.();
+    if (!snap) {
+      toast.error("Nothing handwritten on this page yet.");
+      return;
+    }
+    setTranscribing(true);
+    try {
+      const base64 = snap.split(",")[1] ?? "";
+      const { text } = await callTranscribe({
+        data: { imageBase64: base64, mediaType: "image/png" },
+      });
+      const paras = text
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      editor
+        ?.chain()
+        .focus("end")
+        .insertContent(
+          paras
+            .map(
+              (line) =>
+                `<p>${line.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c] ?? c)}</p>`,
+            )
+            .join(""),
+        )
+        .run();
+      toast.success(`Read ${paras.length} ${paras.length === 1 ? "line" : "lines"} of handwriting`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't read that page.");
+    } finally {
+      setTranscribing(false);
+    }
+  };
   const { theme } = useTheme();
   const [inkMode, setInkMode] = useState<InkMode>("off");
   // Page zoom. Writing at 100% on a tablet produces oversized handwriting —
@@ -1545,6 +1595,27 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 Text box
               </button>
 
+              {/* Read this page back as text. Only shown when there is ink
+                  to read: it is the bridge from a handwritten page to study
+                  guides, flashcards and search, all of which read the body. */}
+              {ink.strokes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={transcribeInk}
+                  disabled={transcribing}
+                  title="Convert the handwriting on this page into note text"
+                  aria-label="Convert handwriting to text"
+                  className="hover-glow flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
+                >
+                  {transcribing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <PenLine className="h-3.5 w-3.5" />
+                  )}
+                  {transcribing ? "Reading…" : "Handwriting → text"}
+                </button>
+              )}
+
               {/* Paper switcher.
                   Inline rather than behind a popover: the popover opened and
                   was dismissed within the same tick (aria-expanded flipped
@@ -1594,12 +1665,12 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </span>
                 <span className="mt-0.5 block text-[12.5px] text-white/80">
                   {plainBodyLength < 20
-                    ? // Handwriting cannot be read yet, so a page covered in
-                      // ink still counts as empty here. Saying "write a few
-                      // sentences" to someone who just wrote a full page is
-                      // the wrong message — name the actual limitation.
+                    ? // A page covered in ink still counts as empty here,
+                      // because everything downstream reads the typed body.
+                      // Point at the way across rather than saying "write a
+                      // few sentences" to someone who just wrote a full page.
                       ink.strokes.length > 0
-                      ? "Handwriting can't be read yet — type or import text to study it"
+                      ? "Convert your handwriting to text first, then study it"
                       : "Write a few sentences first…"
                     : "Smart notes, flashcards, practice questions — and ask anything."}
                 </span>
@@ -1693,6 +1764,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 mode={inkMode}
                 color={inkColor}
                 size={inkSize}
+                snapshotRef={inkSnapshotRef}
                 strokes={ink.strokes}
                 addStroke={ink.addStroke}
                 eraseStrokes={ink.eraseStrokes}
