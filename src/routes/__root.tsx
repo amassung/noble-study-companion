@@ -138,8 +138,30 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Register the offline service worker.
+ *
+ * Deliberately after load: registration competes with the first paint for
+ * bandwidth, and the worker is for the *next* visit, never this one.
+ */
+function useServiceWorker() {
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    if (import.meta.env.DEV) return; // dev serves unbundled modules; caching them helps nobody
+    const register = () => {
+      navigator.serviceWorker.register("/sw.js").catch((err) => {
+        // Not fatal — the app simply stays online-only.
+        console.warn("Service worker registration failed", err);
+      });
+    };
+    if (document.readyState === "complete") register();
+    else window.addEventListener("load", register, { once: true });
+  }, []);
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  useServiceWorker();
 
   return (
     <OfflineQueryProvider queryClient={queryClient}>
