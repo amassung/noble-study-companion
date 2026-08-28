@@ -1594,7 +1594,13 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </span>
                 <span className="mt-0.5 block text-[12.5px] text-white/80">
                   {plainBodyLength < 20
-                    ? "Write a few sentences first…"
+                    ? // Handwriting cannot be read yet, so a page covered in
+                      // ink still counts as empty here. Saying "write a few
+                      // sentences" to someone who just wrote a full page is
+                      // the wrong message — name the actual limitation.
+                      ink.strokes.length > 0
+                      ? "Handwriting can't be read yet — type or import text to study it"
+                      : "Write a few sentences first…"
                     : "Smart notes, flashcards, practice questions — and ask anything."}
                 </span>
               </span>
