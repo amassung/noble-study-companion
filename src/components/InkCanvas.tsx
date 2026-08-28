@@ -796,12 +796,17 @@ export function InkCanvas({
             drag.dx = px - drag.startX;
             drag.dy = py - drag.startY;
           } else {
-            // Guard against a zero-width denominator when a corner is grabbed
-            // exactly on the anchor axis, and against flipping through zero.
+            // Uniform scale, from the cursor's projection onto the corner's
+            // diagonal. Scaling x and y independently stretches letterforms —
+            // handwriting resized that way stops looking like the hand that
+            // wrote it, which is the thing GoodNotes gets right.
             const spanX = drag.startX - drag.ax;
             const spanY = drag.startY - drag.ay;
-            drag.sx = Math.abs(spanX) < 1 ? 1 : Math.max(0.1, (px - drag.ax) / spanX);
-            drag.sy = Math.abs(spanY) < 1 ? 1 : Math.max(0.1, (py - drag.ay) / spanY);
+            const denom = spanX * spanX + spanY * spanY;
+            // Degenerate grab (corner on top of the anchor): leave the size alone.
+            const s = denom < 1 ? 1 : ((px - drag.ax) * spanX + (py - drag.ay) * spanY) / denom;
+            drag.sx = Math.max(0.1, s);
+            drag.sy = drag.sx;
           }
           scheduleLive();
           return;

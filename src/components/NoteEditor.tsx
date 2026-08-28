@@ -66,7 +66,7 @@ import { useNotebooks } from "@/lib/notebooks/use-notebooks";
 import { NOTEBOOK_COLORS, PAPER_TEMPLATES, paperClassName } from "@/lib/notebooks/types";
 import { FreeformLayer } from "@/components/FreeformLayer";
 import { useBoxes, useCreateBoxMutation } from "@/lib/boxes/use-boxes";
-import { Type as TypeIcon, PenLine, ImagePlus, ChevronDown } from "lucide-react";
+import { Type as TypeIcon, PenLine, ImagePlus } from "lucide-react";
 import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
@@ -1545,57 +1545,37 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 Text box
               </button>
 
-              {/* Paper switcher — change this note's paper on the fly */}
-              <Popover>
-                <PopoverTrigger asChild>
+              {/* Paper switcher.
+                  Inline rather than behind a popover: the popover opened and
+                  was dismissed within the same tick (aria-expanded flipped
+                  true then false with nothing calling preventDefault), so the
+                  control was unreachable — and a student looking for lined or
+                  grid paper should not have to find a menu to begin with. */}
+              <div
+                role="radiogroup"
+                aria-label="Paper style"
+                className="flex items-center gap-1 rounded-lg border border-border/60 bg-[var(--surface)] px-1.5 py-1"
+              >
+                <span className="px-1 text-[12px] font-medium text-muted-foreground">Paper</span>
+                {PAPER_TEMPLATES.map((p) => (
                   <button
-                    className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                    title="Paper style"
-                  >
-                    <span
-                      className={cn(
-                        "h-4 w-3.5 rounded-[3px] border border-border/70 bg-[var(--paper)]",
-                        paperCls,
-                      )}
-                    />
-                    <span className="text-foreground">Paper</span>
-                    <span className="text-muted-foreground/80">
-                      {PAPER_TEMPLATES.find((p) => p.value === effectivePaper)?.label ?? "Blank"}
-                    </span>
-                    <ChevronDown className="h-3 w-3 opacity-60" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-3" align="start">
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Paper style
-                  </p>
-                  <div className="flex gap-2.5">
-                    {PAPER_TEMPLATES.map((p) => (
-                      <button
-                        key={p.value}
-                        onClick={() =>
-                          updateMutation.mutate({ id: noteId, patch: { paper: p.value } })
-                        }
-                        className={cn(
-                          "flex flex-col items-center gap-1",
-                          effectivePaper === p.value ? "text-foreground" : "text-muted-foreground",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "h-20 w-14 rounded-md border bg-[var(--paper)]",
-                            p.className,
-                            effectivePaper === p.value
-                              ? "border-primary ring-2 ring-inset ring-primary/40"
-                              : "border-border/60 hover:border-primary/40",
-                          )}
-                        />
-                        <span className="text-[10.5px] font-medium">{p.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                    key={p.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={effectivePaper === p.value}
+                    aria-label={p.label}
+                    title={p.label}
+                    onClick={() => updateMutation.mutate({ id: noteId, patch: { paper: p.value } })}
+                    className={cn(
+                      "flex h-7 w-6 items-center justify-center rounded-[5px] border bg-[var(--paper)] transition-transform",
+                      p.className,
+                      effectivePaper === p.value
+                        ? "border-primary ring-2 ring-inset ring-primary/40"
+                        : "border-border/60 hover:scale-105 hover:border-primary/40",
+                    )}
+                  />
+                ))}
+              </div>
             </div>
 
             {/* Generate Study Guide */}
