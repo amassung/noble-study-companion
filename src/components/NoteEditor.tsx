@@ -66,7 +66,7 @@ import { useNotebooks } from "@/lib/notebooks/use-notebooks";
 import { NOTEBOOK_COLORS, PAPER_TEMPLATES, paperClassName } from "@/lib/notebooks/types";
 import { FreeformLayer } from "@/components/FreeformLayer";
 import { useBoxes, useCreateBoxMutation } from "@/lib/boxes/use-boxes";
-import { Type as TypeIcon, PenLine, ImagePlus } from "lucide-react";
+import { Type as TypeIcon, PenLine, ImagePlus, ChevronDown } from "lucide-react";
 import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
@@ -1554,15 +1554,22 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   >
                     <span
                       className={cn(
-                        "h-3.5 w-3 rounded-[3px] border border-border/70 bg-[var(--paper)]",
+                        "h-4 w-3.5 rounded-[3px] border border-border/70 bg-[var(--paper)]",
                         paperCls,
                       )}
                     />
-                    {PAPER_TEMPLATES.find((p) => p.value === effectivePaper)?.label ?? "Paper"}
+                    <span className="text-foreground">Paper</span>
+                    <span className="text-muted-foreground/80">
+                      {PAPER_TEMPLATES.find((p) => p.value === effectivePaper)?.label ?? "Blank"}
+                    </span>
+                    <ChevronDown className="h-3 w-3 opacity-60" />
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-2" align="start">
-                  <div className="flex gap-2">
+                <PopoverContent className="w-auto p-3" align="start">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Paper style
+                  </p>
+                  <div className="flex gap-2.5">
                     {PAPER_TEMPLATES.map((p) => (
                       <button
                         key={p.value}
@@ -1576,14 +1583,14 @@ export function NoteEditor({ noteId, onClose }: Props) {
                       >
                         <span
                           className={cn(
-                            "h-14 w-10 rounded-md border bg-[var(--paper)]",
+                            "h-20 w-14 rounded-md border bg-[var(--paper)]",
                             p.className,
                             effectivePaper === p.value
                               ? "border-primary ring-2 ring-inset ring-primary/40"
                               : "border-border/60 hover:border-primary/40",
                           )}
                         />
-                        <span className="text-[10px] font-medium">{p.label}</span>
+                        <span className="text-[10.5px] font-medium">{p.label}</span>
                       </button>
                     ))}
                   </div>
@@ -1687,7 +1694,13 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 <EditorContent editor={editor} />
               </div>
               {/* Free-floating text boxes layer (GoodNotes-style) */}
-              <FreeformLayer noteId={noteId} />
+              {/* Boxes take pointers only when a nib is not selected, so a
+                  stroke drawn over a box lands on the page and a drag with
+                  the cursor reaches the box. */}
+              <FreeformLayer
+                noteId={noteId}
+                interactive={inkMode === "off" || inkMode === "select"}
+              />
               {/* Handwriting canvas — pointer-transparent while inkMode is off */}
               <InkCanvas
                 noteId={noteId}

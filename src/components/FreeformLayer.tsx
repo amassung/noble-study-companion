@@ -13,13 +13,31 @@ function clamp(v: number, min: number, max: number) {
  * (GoodNotes-style). Sits above the doc-flow editor: the layer itself is
  * pointer-transparent so normal typing still works, and each box re-enables
  * pointer events for itself.
+ *
+ * `interactive` tracks the pen. With a nib selected the layer must be inert
+ * all the way down — otherwise a stroke drawn across a box is captured by the
+ * box instead of the page. With the cursor selected it must instead sit
+ * *above* the ink canvas, or the canvas swallows the drag and the box cannot
+ * be moved at all.
  */
-export function FreeformLayer({ noteId }: { noteId: string }) {
+export function FreeformLayer({
+  noteId,
+  interactive = true,
+}: {
+  noteId: string;
+  interactive?: boolean;
+}) {
   const { data: boxes = [] } = useBoxes(noteId);
   const layerRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={layerRef} className="pointer-events-none absolute inset-0 z-10">
+    <div
+      ref={layerRef}
+      className={cn(
+        "pointer-events-none absolute inset-0",
+        interactive ? "z-30" : "z-10 [&_*]:pointer-events-none",
+      )}
+    >
       {boxes.map((b) => (
         <FreeformTextBox key={b.id} box={b} noteId={noteId} layerRef={layerRef} />
       ))}
