@@ -14,14 +14,18 @@ import { anthropicHeaders, anthropicError } from "@/lib/ai/anthropic.server";
  * note is worse than one with gaps — the student cannot tell which parts are
  * theirs. Unreadable words come back marked rather than guessed.
  */
-const SYSTEM = `You transcribe a student's handwritten lecture notes from an image.
+const SYSTEM = `You transcribe a page from a student's lecture notes.
+
+The page is drawn by hand on a tablet, so it may be cursive, printed, block
+capitals, or a mixture, and it may include diagrams, arrows and marginalia.
+Transcribe the writing whatever its style.
 
 Rules:
 - Transcribe what is written, in reading order. Do not summarise, correct, reword or add anything.
 - Keep the student's own abbreviations, arrows and shorthand as written.
 - Preserve line and list structure with plain line breaks. Use "- " for bulleted items.
 - Where a word is genuinely illegible, write [?] in its place. Never guess at a term.
-- If the image contains no handwriting at all, return exactly: (no handwriting found)
+- Only if the page carries no legible writing at all — blank, or nothing but doodles and shapes — return exactly: (no writing found)
 - Return only the transcription. No preamble, no commentary, no markdown fences.`;
 
 export const transcribeHandwriting = createServerFn({ method: "POST" })
@@ -70,8 +74,8 @@ export const transcribeHandwriting = createServerFn({ method: "POST" })
     const text =
       json.content?.find((b) => b.type === "text")?.text ?? json.content?.[0]?.text ?? "";
     const trimmed = text.trim();
-    if (!trimmed || trimmed === "(no handwriting found)") {
-      throw new Error("No handwriting found on this page.");
+    if (!trimmed || trimmed === "(no writing found)") {
+      throw new Error("Nothing legible on this page to read.");
     }
     return { text: trimmed };
   });
