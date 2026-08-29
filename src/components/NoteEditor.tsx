@@ -756,11 +756,25 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // made zooming feel sluggish; React is told once, when the fingers lift.
     zoomRef.current = next;
     gestureActiveRef.current = true;
+
+    // Only the page's own transform changes while fingers are down. Resizing
+    // the sizer per sample — as this used to — forced a full layout of the
+    // page subtree every frame, which is what made zooming feel like dragging
+    // a web page rather than moving paper. The sizer is reconciled once, by
+    // React, on release. Scroll offsets are queued for the same moment: they
+    // cannot be applied now because the scrollable extent has not grown yet.
+    pendingScrollRef.current = { left, top };
     const styles = zoomStyles(next, natural);
-    applyStyle(sizerRef.current, styles.sizer as Record<string, unknown>);
-    applyStyle(pageRef.current, styles.page as Record<string, unknown> | undefined);
-    el.scrollLeft = left;
-    el.scrollTop = top;
+    const page = pageRef.current;
+    if (page) {
+      const st = page.style;
+      // translate3d and will-change keep this on the compositor.
+      st.willChange = "transform";
+      applyStyle(page, styles.page as Record<string, unknown> | undefined);
+      const scrolled = `translate3d(${-(left - el.scrollLeft)}px, ${-(top - el.scrollTop)}px, 0)`;
+      st.transform = `${scrolled} scale(${next})`;
+      st.transformOrigin = "0 0";
+    }
   };
 
   // The fingers left the glass: hand the final scale back to React so the
@@ -790,7 +804,12 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
     if (!gestureActiveRef.current) return;
     gestureActiveRef.current = false;
-    if (el) pendingScrollRef.current = { left: el.scrollLeft, top: el.scrollTop };
+    // Drop the gesture's temporary offset. React re-renders with the real
+    // sizer, and the queued scroll puts the page back where the fingers left
+    // it — see the layout effect below, which runs before the browser paints
+    // so the swap is never visible.
+    const page = pageRef.current;
+    if (page) page.style.willChange = "";
     setZoom(zoomRef.current);
   };
 
