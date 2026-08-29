@@ -205,7 +205,9 @@ export function InkCanvas({
   const drawingRef = useRef(false);
   // Set once a stylus is detected; thereafter touch events are ignored.
   const sawStylusRef = useRef(false);
-  const erasedRef = useRef<Set<string>>(new Set());
+  // Strokes part-way through being cut, as their surviving runs. Held here
+  // for the length of an eraser drag, then written once on release.
+  const carveRef = useRef<Map<string, Point[][]>>(new Map());
   // Eraser tip position in host px, tracked on hover as well as on press so
   // the bubble is visible before anything is destroyed.
   const eraserTipRef = useRef<{ x: number; y: number } | null>(null);
@@ -469,23 +471,33 @@ export function InkCanvas({
       // Two things a student needs before rubbing out a word: how wide the
       // tip is, and exactly which strokes it is about to take. Showing the
       // second is the difference between a confident erase and a guess.
+      // Surviving pieces of anything currently being cut.
+      if (carveRef.current.size) {
+        for (const [id, runs] of carveRef.current) {
+          const original = propsRef.current.strokes.find((s2) => s2.id === id);
+          if (!original) continue;
+          for (const run of runs) {
+            if (run.length > 1) {
+              renderTo(ctx, dims.w, run, original.color, original.size, original.tool);
+            }
+          }
+        }
+      }
+
       const tip = eraserTipRef.current;
       if (propsRef.current.mode === "eraser" && tip) {
         const radius = propsRef.current.eraserSize;
-        const doomed = strokesWithin(tip.x, tip.y, radius, dims.w);
-        for (const st of doomed) {
-          renderTo(ctx, dims.w, st.points, "#ef4444", st.size, st.tool, 0.85);
-        }
+        const armed = inkUnderTip(tip.x, tip.y, radius, dims.w);
         ctx.save();
         ctx.beginPath();
         ctx.arc(tip.x, tip.y, radius, 0, Math.PI * 2);
         // Red only when it would actually take something. Over blank page the
         // bubble is a neutral outline, so its colour alone answers "will this
         // remove anything?" before the student commits.
-        ctx.fillStyle = doomed.length ? "rgba(239,68,68,0.12)" : "rgba(120,120,130,0.07)";
+        ctx.fillStyle = armed ? "rgba(239,68,68,0.12)" : "rgba(120,120,130,0.07)";
         ctx.fill();
         ctx.lineWidth = 1.5;
-        ctx.strokeStyle = doomed.length ? "rgba(239,68,68,0.95)" : "rgba(120,120,130,0.7)";
+        ctx.strokeStyle = armed ? "rgba(239,68,68,0.95)" : "rgba(120,120,130,0.7)";
         ctx.stroke();
         ctx.restore();
       }
@@ -602,43 +614,116 @@ export function InkCanvas({
       return e.pointerType === "touch" && sawStylusRef.current;
     };
 
-    /** Strokes the eraser tip is currently over. */
-    const strokesWithin = (px: number, py: number, radius: number, w: number) => {
-      const hits: InkStroke[] = [];
+    /** True when any ink lies under the tip — used to arm the bubble. */
+    const inkUnderTip = (px: number, py: number, radius: number, w: number) => {
       for (const st of propsRef.current.strokes) {
+        if (carveRef.current.has(st.id)) continue;
         for (let i = 1; i < st.points.length; i++) {
           const ax = st.points[i - 1][0] * w;
           const ay = st.points[i - 1][1];
           const bx = st.points[i][0] * w;
           const by = st.points[i][1];
-          if (distToSegment(px, py, ax, ay, bx, by) <= radius) {
-            hits.push(st);
-            break;
+          if (distToSegment(px, py, ax, ay, bx, by) <= radius) return true;
+        }
+      }
+      for (const runs of carveRef.current.values()) {
+        for (const run of runs) {
+          for (let i = 1; i < run.length; i++) {
+            const ax = run[i - 1][0] * w;
+            const ay = run[i - 1][1];
+            const bx = run[i][0] * w;
+            const by = run[i][1];
+            if (distToSegment(px, py, ax, ay, bx, by) <= radius) return true;
           }
         }
       }
-      return hits;
+      return false;
     };
 
-    const eraseAt = (pt: Point) => {
+    /**
+     * Drop the points inside the eraser circle, returning the surviving runs.
+     *
+     * This is what makes the eraser rub out part of a mark rather than the
+     * whole of it: a stroke crossing the tip comes back as the pieces either
+     * side, so half of a "4" can go while the rest stays. Runs of a single
+     * point are discarded — one point is not a line.
+     */
+    const carveRun = (pts: Point[], w: number, cx: number, cy: number, r: number): Point[][] => {
+      const runs: Point[][] = [];
+      let cur: Point[] = [];
+      for (const pt of pts) {
+        const px = pt[0] * w;
+        const py = pt[1];
+        if (Math.hypot(px - cx, py - cy) <= r) {
+          if (cur.length > 1) runs.push(cur);
+          cur = [];
+        } else {
+          cur.push(pt);
+        }
+      }
+      if (cur.length > 1) runs.push(cur);
+      return runs;
+    };
+
+    /**
+     * Carve at the tip. Edits are held in carveRef for the duration of the
+     * drag and written once on release: committing on every sample would fire
+     * a delete and several inserts per pointer move.
+     */
+    const carveAt = (pt: Point) => {
       const w = host.offsetWidth || 1;
-      const px = pt[0] * w;
-      const py = pt[1];
-      const hitRadius = propsRef.current.eraserSize;
-      const hits: string[] = [];
-      for (const s of propsRef.current.strokes) {
-        if (erasedRef.current.has(s.id)) continue;
-        for (let i = 1; i < s.points.length; i++) {
-          const [ax, ay] = [s.points[i - 1][0] * w, s.points[i - 1][1]];
-          const [bx, by] = [s.points[i][0] * w, s.points[i][1]];
-          if (distToSegment(px, py, ax, ay, bx, by) <= hitRadius) {
-            hits.push(s.id);
-            erasedRef.current.add(s.id);
-            break;
+      const cx = pt[0] * w;
+      const cy = pt[1];
+      const r = propsRef.current.eraserSize;
+      let newlyAffected = false;
+
+      for (const st of propsRef.current.strokes) {
+        const existing = carveRef.current.get(st.id);
+        const source = existing ?? [st.points];
+        const next: Point[][] = [];
+        let changed = false;
+        for (const run of source) {
+          const parts = carveRun(run, w, cx, cy, r);
+          if (parts.length !== 1 || parts[0].length !== run.length) changed = true;
+          next.push(...parts);
+        }
+        if (!changed) continue;
+        // The first cut into a stroke takes it off the committed layer, which
+        // is the only time that layer has to be repainted mid-drag.
+        if (!existing) newlyAffected = true;
+        carveRef.current.set(st.id, next);
+      }
+
+      if (newlyAffected) paintBase();
+      scheduleLive();
+    };
+
+    /** Write the drag's cuts: originals out, surviving pieces back in. */
+    const commitCarve = () => {
+      const pending = carveRef.current;
+      if (!pending.size) return;
+      const removed: string[] = [];
+      const added: Pick<InkStroke, "points" | "color" | "size" | "tool">[] = [];
+      for (const [id, runs] of pending) {
+        const original = propsRef.current.strokes.find((s2) => s2.id === id);
+        removed.push(id);
+        if (!original) continue;
+        for (const run of runs) {
+          if (run.length > 1) {
+            added.push({
+              points: run,
+              color: original.color,
+              size: original.size,
+              tool: original.tool,
+            });
           }
         }
       }
-      if (hits.length) propsRef.current.eraseStrokes(hits);
+      pending.clear();
+      if (removed.length) propsRef.current.eraseStrokes(removed);
+      for (const a of added) propsRef.current.addStroke(a);
+      paintBase();
+      scheduleLive();
     };
 
     /** Recompute the pinch baseline from the currently-down touches. */
@@ -659,7 +744,7 @@ export function InkCanvas({
     const finish = () => {
       if (!drawingRef.current) return;
       drawingRef.current = false;
-      erasedRef.current.clear();
+      commitCarve();
       const pts = activeRef.current;
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
       if (pts.length > 1 && isDrawTool(m)) {
@@ -868,9 +953,8 @@ export function InkCanvas({
       drawingRef.current = true;
       const pt = pointFrom(e);
       if (propsRef.current.mode === "eraser") {
-        erasedRef.current.clear();
         eraserTipRef.current = { x: pt[0] * host.offsetWidth, y: pt[1] };
-        eraseAt(pt);
+        carveAt(pt);
       } else {
         activeRef.current = [pt];
         scheduleLive();
@@ -958,7 +1042,7 @@ export function InkCanvas({
         const ept = pointFrom(e);
         eraserTipRef.current = { x: ept[0] * host.offsetWidth, y: ept[1] };
         scheduleLive();
-        eraseAt(ept);
+        carveAt(ept);
         return;
       }
 
