@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireUser } from "@/lib/supabase/require-user.server";
+import { anthropicHeaders, anthropicError } from "@/lib/ai/anthropic.server";
 
 /**
  * Read a page of handwriting back as text.
@@ -44,11 +45,7 @@ export const transcribeHandwriting = createServerFn({ method: "POST" })
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
+      headers: anthropicHeaders(apiKey),
       body: JSON.stringify({
         model,
         max_tokens: 2048,
@@ -67,16 +64,7 @@ export const transcribeHandwriting = createServerFn({ method: "POST" })
         ],
       }),
     });
-
-    if (res.status === 429) throw new Error("Rate limit reached. Try again in a moment.");
-    if (res.status === 401 || res.status === 403) {
-      throw new Error("Invalid Anthropic API key. Check ANTHROPIC_API_KEY.");
-    }
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      console.error("Anthropic API error", res.status, t);
-      throw new Error("Couldn't read that page. Please try again.");
-    }
+    if (!res.ok) throw await anthropicError(res, "Couldn't read that page. Please try again.");
 
     const json = (await res.json()) as { content?: { type: string; text?: string }[] };
     const text =

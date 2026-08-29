@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireUser } from "@/lib/supabase/require-user.server";
+import { anthropicHeaders, anthropicError } from "@/lib/ai/anthropic.server";
 
 export type StudyGuide = {
   title: string;
@@ -77,11 +78,7 @@ export const generateStudyGuide = createServerFn({ method: "POST" })
 
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
+      headers: anthropicHeaders(apiKey),
       body: JSON.stringify({
         model,
         max_tokens: 4096,
@@ -89,18 +86,8 @@ export const generateStudyGuide = createServerFn({ method: "POST" })
         messages: [{ role: "user", content: userPrompt }],
       }),
     });
-
-    if (res.status === 429) {
-      throw new Error("Rate limit reached. Please try again in a moment.");
-    }
-    if (res.status === 401 || res.status === 403) {
-      throw new Error("Invalid Anthropic API key. Check ANTHROPIC_API_KEY in .env.local.");
-    }
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      console.error("Anthropic API error", res.status, t);
-      throw new Error("Couldn't generate study guide. Please try again.");
-    }
+    if (!res.ok)
+      throw await anthropicError(res, "Couldn't generate study guide. Please try again.");
 
     const json = (await res.json()) as {
       content?: { type: string; text?: string }[];
