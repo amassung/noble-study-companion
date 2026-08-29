@@ -37,6 +37,9 @@ import {
   AlignRight,
   FileUp,
   Download,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
   FileText,
   GalleryHorizontal,
   BookOpen,
@@ -93,6 +96,8 @@ const FONT_FAMILIES = [
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
 const MAX_SLIDE_PAGES = 20; // cap on rendered pages per import
 const PAGE_HEIGHT = 1040; // px height of one "page" sheet before it rolls to the next
+// Visual break between pages. Wide enough to read as a gap between sheets.
+const PAGE_GAP = 26;
 
 /**
  * The zoom transform, as plain style objects.
@@ -609,6 +614,37 @@ export function NoteEditor({ noteId, onClose }: Props) {
     ro.observe(el);
     scrollObserverRef.current = ro;
     recompute();
+
+    // Page tracking lives here too. A []-dep effect runs before this
+    // container exists, finds a null ref, and silently never attaches — the
+    // page counter then sits on 1 forever.
+    scrollTrackerRef.current?.();
+    const measure = () => {
+      const top = el.getBoundingClientRect().top;
+      let best = 0;
+      let bestDist = Infinity;
+      pageMarkersRef.current.forEach((m, i) => {
+        if (!m) return;
+        const d = Math.abs(m.getBoundingClientRect().top - top);
+        if (d < bestDist) {
+          bestDist = d;
+          best = i;
+        }
+      });
+      setCurrentPage(best);
+    };
+    // Throttled on a timestamp rather than an animation frame: an inactive
+    // tab stops serving frames and the counter would go stale.
+    let last = 0;
+    const onScroll = () => {
+      const now = Date.now();
+      if (now - last < 80) return;
+      last = now;
+      measure();
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    scrollTrackerRef.current = () => el.removeEventListener("scroll", onScroll);
+    measure();
   }, []);
   // Read by the gesture handler, which must not compute from `zoom` state:
   // React may invoke a state updater more than once, and doing scroll maths
@@ -877,7 +913,57 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // How many page-sized sheets to show. Grows automatically as content (typed
   // text or a text box) fills the current page — so a note "becomes pages"
   // instead of forcing a new note.
-  const [pageCount, setPageCount] = useState(1);
+  // Pages the content itself demands…
+  const [derivedPages, setDerivedPages] = useState(1);
+  // …and pages the student asked for. A blank page you can write on before
+  // the previous one is full is the normal way a paper notebook works.
+  const [manualPages, setManualPages] = useState(1);
+  const pageCount = Math.max(derivedPages, manualPages);
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageMarkersRef = useRef<(HTMLDivElement | null)[]>([]);
+  const currentPageRef = useRef(0);
+  const goToPageRef = useRef<(i: number) => void>(() => {});
+  const scrollTrackerRef = useRef<(() => void) | null>(null);
+
+  const swipeRef = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const drawing = () => inkMode !== "off" && inkMode !== "select";
+    const start = (e: TouchEvent) => {
+      if (drawing() || e.touches.length !== 1) {
+        swipeRef.current = null;
+        return;
+      }
+      swipeRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    };
+    const end = (e: TouchEvent) => {
+      const s0 = swipeRef.current;
+      swipeRef.current = null;
+      if (!s0 || drawing()) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - s0.x;
+      const dy = t.clientY - s0.y;
+      // Clearly sideways, and far enough to be deliberate.
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      goToPageRef.current(dx < 0 ? currentPageRef.current + 1 : currentPageRef.current - 1);
+    };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchend", end, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchend", end);
+    };
+  }, [inkMode]);
+
+  const goToPage = (i: number) => {
+    const clamped = Math.min(pageCount - 1, Math.max(0, i));
+    pageMarkersRef.current[clamped]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setCurrentPage(clamped);
+  };
+  currentPageRef.current = currentPage;
+  goToPageRef.current = goToPage;
 
   // ── Tiptap editor ──────────────────────────────────────────────────────
   const editor = useEditor({
@@ -1007,7 +1093,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       const boxesBottom = boxes.reduce((m, b) => Math.max(m, b.y + 80), 0);
       const bottom = Math.max(editorBottom, boxesBottom);
       // +48 breathing room so a nearly-full page rolls to a fresh one.
-      setPageCount(Math.max(1, Math.ceil((bottom + 48) / PAGE_HEIGHT)));
+      setDerivedPages(Math.max(1, Math.ceil((bottom + 48) / PAGE_HEIGHT)));
     };
     recompute();
     const ro = new ResizeObserver(recompute);
@@ -1471,6 +1557,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
           // The inset changes as the keyboard animates in; matching it keeps
           // the page from jumping under the student's hand.
           transition: "padding-bottom 150ms ease-out",
+          // Proximity, never mandatory: mandatory snapping fights a student
+          // writing across a page boundary.
+          scrollSnapType: "y proximity",
         }}
         ref={setScrollRef}
         className={`flex-1 min-h-0 overflow-auto${annotationMode !== "none" ? " annotating" : ""}`}
@@ -1624,6 +1713,49 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 Text box
               </button>
 
+              {/* Pages: where you are, how to move, and how to add one. */}
+              <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-[var(--surface)] px-1.5 py-1">
+                <button
+                  type="button"
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 0}
+                  aria-label="Previous page"
+                  title="Previous page"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-30"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="min-w-[68px] text-center text-[12px] font-medium tabular-nums text-muted-foreground">
+                  Page {currentPage + 1} / {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage >= pageCount - 1}
+                  aria-label="Next page"
+                  title="Next page"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-30"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <span className="mx-0.5 h-4 w-px bg-border/60" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = pageCount + 1;
+                    setManualPages(next);
+                    // Land on the new sheet once it has been laid out.
+                    requestAnimationFrame(() => goToPage(next - 1));
+                  }}
+                  aria-label="Add page"
+                  title="Add a blank page"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Page
+                </button>
+              </div>
+
               {/* Read this page back as text. Only shown when there is ink
                   to read: it is the bridge from a handwritten page to study
                   guides, flashcards and search, all of which read the body. */}
@@ -1759,21 +1891,44 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 paperCls,
               )}
             >
-              {/* Page-break separators — a dashed rule + page pill at each
-                page boundary so a long note visibly reads as pages. */}
+              {/* Page boundaries.
+                  A band of the surrounding canvas colour laid *over* the ink
+                  (z above the canvas, pointer-transparent) so a stroke stops
+                  at the page edge instead of running through it — one tall
+                  sheet reads as a stack of separate ones. */}
               {Array.from({ length: pageCount - 1 }).map((_, i) => (
                 <div
                   key={i}
                   aria-hidden
-                  className="pointer-events-none absolute inset-x-0 z-[2] flex items-center gap-3 px-4"
-                  style={{ top: `${(i + 1) * PAGE_HEIGHT}px`, transform: "translateY(-50%)" }}
+                  className="pointer-events-none absolute inset-x-0 z-[25] flex items-center gap-3 px-4"
+                  style={{
+                    top: `${(i + 1) * PAGE_HEIGHT - PAGE_GAP / 2}px`,
+                    height: `${PAGE_GAP}px`,
+                    backgroundColor: "var(--canvas)",
+                    boxShadow:
+                      "inset 0 10px 10px -10px rgba(0,0,0,0.45), inset 0 -10px 10px -10px rgba(0,0,0,0.45)",
+                  }}
                 >
-                  <span className="h-0 flex-1 border-t border-dashed border-border" />
+                  <span className="h-0 flex-1" />
                   <span className="rounded-full border border-border/70 bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Page {i + 2}
                   </span>
-                  <span className="h-0 flex-1 border-t border-dashed border-border" />
+                  <span className="h-0 flex-1" />
                 </div>
+              ))}
+
+              {/* Snap targets at each page top, so scrolling settles on a
+                  page rather than halfway down one. */}
+              {Array.from({ length: pageCount }).map((_, i) => (
+                <div
+                  key={`snap-${i}`}
+                  aria-hidden
+                  ref={(el) => {
+                    pageMarkersRef.current[i] = el;
+                  }}
+                  className="pointer-events-none absolute inset-x-0 h-px"
+                  style={{ top: `${i * PAGE_HEIGHT}px`, scrollSnapAlign: "start" }}
+                />
               ))}
 
               <div className={cn("relative z-[1]", hidePlaceholder && "ink-active")}>
