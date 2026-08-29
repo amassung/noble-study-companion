@@ -125,6 +125,7 @@ export function InkCanvas({
   onTapEmpty,
   zoom = 1,
   snapshotRef,
+  eraserSize = 24,
 }: {
   noteId: string;
   mode: InkMode;
@@ -150,6 +151,12 @@ export function InkCanvas({
    */
   snapshotRef?: { current: (() => string | null) | null };
   /**
+   * Eraser radius in page px. Its own control rather than the nib size: how
+   * fine a mark you write and how much you want to take back are unrelated,
+   * and rubbing out one letter needs a much smaller tip than clearing a line.
+   */
+  eraserSize?: number;
+  /**
    * Current page scale. Ink is rasterised, so a CSS transform would stretch
    * the bitmap and the handwriting would go soft exactly the way a zoomed web
    * page does. Feeding the scale in lets the canvas re-render its strokes at
@@ -166,6 +173,7 @@ export function InkCanvas({
   // Pointer handlers are attached once and must not close over stale props,
   // so the latest values are mirrored here instead of in the dependency list.
   const propsRef = useRef({
+    eraserSize,
     mode,
     color,
     size,
@@ -179,6 +187,7 @@ export function InkCanvas({
     zoom,
   });
   propsRef.current = {
+    eraserSize,
     mode,
     color,
     size,
@@ -197,6 +206,9 @@ export function InkCanvas({
   // Set once a stylus is detected; thereafter touch events are ignored.
   const sawStylusRef = useRef(false);
   const erasedRef = useRef<Set<string>>(new Set());
+  // Eraser tip position in host px, tracked on hover as well as on press so
+  // the bubble is visible before anything is destroyed.
+  const eraserTipRef = useRef<{ x: number; y: number } | null>(null);
   // Active touch pointers. Two or more means the student is panning/zooming
   // rather than writing, which must keep working mid-session — in GoodNotes
   // two fingers always pan and pinch even with the pen selected.
@@ -271,6 +283,9 @@ export function InkCanvas({
       strokeColor: string,
       strokeSize: number,
       tool: InkTool,
+      // Overrides the tool's own opacity. Used to flag strokes the eraser is
+      // about to remove, where the point is visibility, not fidelity.
+      alphaOverride?: number,
     ) => {
       const spec = TOOL_SPEC[tool] ?? TOOL_SPEC.pen;
       const abs: Point[] = pts.map(([x, y, p]) => [x * w, y, p]);
@@ -283,18 +298,18 @@ export function InkCanvas({
         // A soft base coat carries the stroke's shape, then the speckle tile
         // lays the graphite over it. Base alone looks like a faded pen; tile
         // alone is too sparse to read as a line.
-        ctx.globalAlpha = spec.alpha * 0.5;
+        ctx.globalAlpha = (alphaOverride ?? spec.alpha) * 0.5;
         ctx.fillStyle = strokeColor;
         ctx.fill(p2d);
         const tile = grainTile(strokeColor);
         const pattern = tile ? ctx.createPattern(tile, "repeat") : null;
         if (pattern) {
-          ctx.globalAlpha = spec.alpha;
+          ctx.globalAlpha = alphaOverride ?? spec.alpha;
           ctx.fillStyle = pattern;
           ctx.fill(p2d);
         }
       } else {
-        ctx.globalAlpha = spec.alpha;
+        ctx.globalAlpha = alphaOverride ?? spec.alpha;
         ctx.fillStyle = strokeColor;
         ctx.fill(p2d);
       }
@@ -449,6 +464,31 @@ export function InkCanvas({
         ctx.stroke();
         ctx.restore();
       }
+
+      // ── Eraser bubble ───────────────────────────────────────────────
+      // Two things a student needs before rubbing out a word: how wide the
+      // tip is, and exactly which strokes it is about to take. Showing the
+      // second is the difference between a confident erase and a guess.
+      const tip = eraserTipRef.current;
+      if (propsRef.current.mode === "eraser" && tip) {
+        const radius = propsRef.current.eraserSize;
+        const doomed = strokesWithin(tip.x, tip.y, radius, dims.w);
+        for (const st of doomed) {
+          renderTo(ctx, dims.w, st.points, "#ef4444", st.size, st.tool, 0.85);
+        }
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(tip.x, tip.y, radius, 0, Math.PI * 2);
+        // Red only when it would actually take something. Over blank page the
+        // bubble is a neutral outline, so its colour alone answers "will this
+        // remove anything?" before the student commits.
+        ctx.fillStyle = doomed.length ? "rgba(239,68,68,0.12)" : "rgba(120,120,130,0.07)";
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = doomed.length ? "rgba(239,68,68,0.95)" : "rgba(120,120,130,0.7)";
+        ctx.stroke();
+        ctx.restore();
+      }
     };
 
     // Coalesce every sample that arrives within one frame into a single paint.
@@ -562,11 +602,29 @@ export function InkCanvas({
       return e.pointerType === "touch" && sawStylusRef.current;
     };
 
+    /** Strokes the eraser tip is currently over. */
+    const strokesWithin = (px: number, py: number, radius: number, w: number) => {
+      const hits: InkStroke[] = [];
+      for (const st of propsRef.current.strokes) {
+        for (let i = 1; i < st.points.length; i++) {
+          const ax = st.points[i - 1][0] * w;
+          const ay = st.points[i - 1][1];
+          const bx = st.points[i][0] * w;
+          const by = st.points[i][1];
+          if (distToSegment(px, py, ax, ay, bx, by) <= radius) {
+            hits.push(st);
+            break;
+          }
+        }
+      }
+      return hits;
+    };
+
     const eraseAt = (pt: Point) => {
       const w = host.offsetWidth || 1;
       const px = pt[0] * w;
       const py = pt[1];
-      const hitRadius = Math.max(12, propsRef.current.size * 2);
+      const hitRadius = propsRef.current.eraserSize;
       const hits: string[] = [];
       for (const s of propsRef.current.strokes) {
         if (erasedRef.current.has(s.id)) continue;
@@ -811,6 +869,7 @@ export function InkCanvas({
       const pt = pointFrom(e);
       if (propsRef.current.mode === "eraser") {
         erasedRef.current.clear();
+        eraserTipRef.current = { x: pt[0] * host.offsetWidth, y: pt[1] };
         eraseAt(pt);
       } else {
         activeRef.current = [pt];
@@ -820,6 +879,14 @@ export function InkCanvas({
 
     const onMove = (e: PointerEvent) => {
       if (propsRef.current.mode === "off") return;
+
+      // Eraser bubble follows the tip even with nothing pressed, so the
+      // student can line it up on the word before removing anything.
+      if (propsRef.current.mode === "eraser" && !drawingRef.current) {
+        const hp = pointFrom(e);
+        eraserTipRef.current = { x: hp[0] * host.offsetWidth, y: hp[1] };
+        scheduleLive();
+      }
 
       // Two-finger pan + pinch-zoom, reported to the page so it can transform.
       if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
@@ -888,7 +955,10 @@ export function InkCanvas({
       e.preventDefault();
 
       if (propsRef.current.mode === "eraser") {
-        eraseAt(pointFrom(e));
+        const ept = pointFrom(e);
+        eraserTipRef.current = { x: ept[0] * host.offsetWidth, y: ept[1] };
+        scheduleLive();
+        eraseAt(ept);
         return;
       }
 
@@ -987,6 +1057,15 @@ export function InkCanvas({
       if (e.touches.length >= 2) return;
       e.preventDefault();
     };
+    const clearEraserTip = () => {
+      if (eraserTipRef.current) {
+        eraserTipRef.current = null;
+        scheduleLive();
+      }
+    };
+    host.addEventListener("pointerleave", clearEraserTip);
+    host.addEventListener("pointerout", clearEraserTip);
+
     host.addEventListener("touchstart", swallowTouch, opts);
     host.addEventListener("touchmove", swallowTouch, opts);
 
@@ -1001,6 +1080,8 @@ export function InkCanvas({
       host.removeEventListener("pointermove", onMove, opts);
       host.removeEventListener("pointerup", onUp, opts);
       host.removeEventListener("pointercancel", onUp, opts);
+      host.removeEventListener("pointerleave", clearEraserTip);
+      host.removeEventListener("pointerout", clearEraserTip);
       host.removeEventListener("touchstart", swallowTouch, opts);
       host.removeEventListener("touchmove", swallowTouch, opts);
       ro.disconnect();

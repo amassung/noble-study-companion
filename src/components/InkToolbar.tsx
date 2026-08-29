@@ -29,6 +29,14 @@ export const HIGHLIGHT_INK_COLORS = [
   { label: "Pink", value: "#f9a8d4" },
 ] as const;
 
+/** Eraser tip radius in page px — fine enough for one letter, broad enough
+ *  to clear a line without repeated passes. */
+export const ERASER_SIZES = [
+  { label: "Fine", value: 10 },
+  { label: "Medium", value: 24 },
+  { label: "Broad", value: 52 },
+] as const;
+
 export const PEN_SIZES = [
   { label: "Fine", value: 2.5 },
   { label: "Medium", value: 5 },
@@ -53,6 +61,8 @@ export function InkToolbar({
   zoom,
   setZoom,
   minZoom,
+  eraserSize,
+  setEraserSize,
 }: {
   mode: InkMode;
   setMode: (m: InkMode) => void;
@@ -68,6 +78,8 @@ export function InkToolbar({
   setZoom: (z: number) => void;
   /** Floor for zooming out — the scale that fits a whole page on screen. */
   minZoom: number;
+  eraserSize: number;
+  setEraserSize: (s: number) => void;
 }) {
   const palette = mode === "highlighter" ? HIGHLIGHT_INK_COLORS : INK_COLORS;
 
@@ -181,6 +193,40 @@ export function InkToolbar({
       </button>
 
       {/* Colour and nib size mean nothing for the arrow or the eraser. */}
+      {mode === "eraser" && (
+        <>
+          <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+          {ERASER_SIZES.map((e) => (
+            <button
+              key={e.label}
+              type="button"
+              onClick={() => setEraserSize(e.value)}
+              title={`${e.label} eraser`}
+              aria-label={`${e.label} eraser`}
+              aria-pressed={eraserSize === e.value}
+              className={cn(
+                "flex h-[34px] min-w-[34px] items-center justify-center rounded-lg transition-colors",
+                eraserSize === e.value
+                  ? "bg-primary/15 ring-1 ring-inset ring-primary/25"
+                  : "hover:bg-white/[0.06]",
+              )}
+            >
+              <span
+                className="rounded-full border"
+                style={{
+                  // Scaled down to fit the toolbar while keeping the sizes
+                  // visibly different from one another.
+                  width: `${Math.round(e.value / 2.6) + 8}px`,
+                  height: `${Math.round(e.value / 2.6) + 8}px`,
+                  borderColor:
+                    eraserSize === e.value ? "var(--primary)" : "var(--muted-foreground)",
+                }}
+              />
+            </button>
+          ))}
+        </>
+      )}
+
       {mode !== "off" && mode !== "eraser" && mode !== "select" && (
         <>
           <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />

@@ -835,6 +835,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
   const [inkColor, setInkColor] = useState<string>(INK_COLORS[0].value);
   const [inkSize, setInkSize] = useState(5);
+  // Separate from the nib: how fine you write and how much you want to
+  // take back are unrelated choices.
+  const [eraserSize, setEraserSize] = useState(24);
   // Until the user picks a colour themselves, follow the paper: dark ink on
   // the light/cream papers, light ink on the dark blank sheet — otherwise
   // the default near-black pen is invisible on a dark page.
@@ -1540,6 +1543,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
           zoom={zoom}
           setZoom={(z) => setZoom(clampZoom(z))}
           minZoom={fitZoom}
+          eraserSize={eraserSize}
+          setEraserSize={setEraserSize}
         />
       )}
 
@@ -1949,6 +1954,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 color={inkColor}
                 size={inkSize}
                 snapshotRef={inkSnapshotRef}
+                eraserSize={eraserSize}
                 strokes={ink.strokes}
                 addStroke={ink.addStroke}
                 eraseStrokes={ink.eraseStrokes}
