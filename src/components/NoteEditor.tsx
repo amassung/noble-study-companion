@@ -657,6 +657,9 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // True between the second finger landing and the last one lifting, while the
   // page is transforming itself outside of React.
   const gestureActiveRef = useRef(false);
+  // Scroll position when the pinch began. Scroll is frozen for the duration,
+  // so this is the fixed origin the gesture's transform is measured against.
+  const gestureScrollRef = useRef<{ left: number; top: number } | null>(null);
   // Pan velocity in px/ms, for the glide after the fingers leave the glass.
   const velocityRef = useRef({ x: 0, y: 0, t: 0 });
   const glideRef = useRef<number | null>(null);
@@ -731,8 +734,15 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // the maths, or zooming out drifts sideways.
     const gutter = (z: number) =>
       natural.w ? Math.max(0, (el.clientWidth - natural.w * z) / 2) : 0;
+    // Base the maths on the scroll position already decided for this gesture.
+    // Scroll is not written until the fingers lift, so el.scrollLeft stays at
+    // its starting value while the scale advances — reading it directly made
+    // every sample recompute from the same stale origin and the page no
+    // longer stayed under the fingers.
+    const baseLeft = pendingScrollRef.current?.left ?? el.scrollLeft;
+    const baseTop = pendingScrollRef.current?.top ?? el.scrollTop;
     // Content coordinate currently under the pinch centre.
-    const contentX = (el.scrollLeft + px - gutter(prev)) / prev;
+    const contentX = (baseLeft + px - gutter(prev)) / prev;
     // Zoom about the pinch centre rather than a fixed origin: the content
     // under the fingers has to stay under the fingers, which is what lets a
     // student pinch into a corner and write in that spot. The two-finger drag
@@ -742,7 +752,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // every sample.
     const left = Math.max(0, gutter(next) + contentX * next - px - dx);
     // No vertical centring, so the ratio form is exact here.
-    const top = Math.max(0, (el.scrollTop + py) * ratio - py - dy);
+    const top = Math.max(0, (baseTop + py) * ratio - py - dy);
 
     if (ratio === 1) {
       // Already at a zoom limit — this is a pure pan.
@@ -755,7 +765,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // re-rendered this whole component on every pinch sample, which is what
     // made zooming feel sluggish; React is told once, when the fingers lift.
     zoomRef.current = next;
-    gestureActiveRef.current = true;
+    if (!gestureActiveRef.current) {
+      gestureActiveRef.current = true;
+      gestureScrollRef.current = { left: el.scrollLeft, top: el.scrollTop };
+    }
+    const origin = gestureScrollRef.current ?? { left: el.scrollLeft, top: el.scrollTop };
 
     // Only the page's own transform changes while fingers are down. Resizing
     // the sizer per sample — as this used to — forced a full layout of the
@@ -771,7 +785,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       // translate3d and will-change keep this on the compositor.
       st.willChange = "transform";
       applyStyle(page, styles.page as Record<string, unknown> | undefined);
-      const scrolled = `translate3d(${-(left - el.scrollLeft)}px, ${-(top - el.scrollTop)}px, 0)`;
+      const scrolled = `translate3d(${-(left - origin.left)}px, ${-(top - origin.top)}px, 0)`;
       st.transform = `${scrolled} scale(${next})`;
       st.transformOrigin = "0 0";
     }
@@ -804,6 +818,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
 
     if (!gestureActiveRef.current) return;
     gestureActiveRef.current = false;
+    gestureScrollRef.current = null;
     // Drop the gesture's temporary offset. React re-renders with the real
     // sizer, and the queued scroll puts the page back where the fingers left
     // it — see the layout effect below, which runs before the browser paints
@@ -820,6 +835,13 @@ export function NoteEditor({ noteId, onClose }: Props) {
     const pending = pendingScrollRef.current;
     if (!el || !pending) return;
     pendingScrollRef.current = null;
+    // Read the extent first. A scroll offset is clamped to whatever the
+    // container can currently scroll, and until the enlarged sizer has been
+    // laid out that is still the old, smaller extent — so zooming in from a
+    // page that exactly filled the width had its horizontal offset clamped to
+    // zero and the page slid away from the fingers. Touching scrollWidth
+    // forces the new layout before the assignment.
+    void el.scrollWidth;
     el.scrollLeft = pending.left;
     el.scrollTop = pending.top;
   }, [zoom]);
