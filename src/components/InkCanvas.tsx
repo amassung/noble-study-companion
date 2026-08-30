@@ -217,6 +217,9 @@ export function InkCanvas({
   const touchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const gestureRef = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const rafRef = useRef<number | null>(null);
+  // Set when a carve removes strokes from the committed layer; cleared by the
+  // next frame, which repaints it once however many strokes were cut.
+  const baseDirtyRef = useRef(false);
   // Set by the effect below so prop changes can trigger a repaint without
   // tearing down and re-attaching the pointer handlers.
   const repaintRef = useRef<(() => void) | null>(null);
@@ -278,6 +281,25 @@ export function InkCanvas({
       return { w, h, dpr };
     };
 
+    // A stroke's outline only changes when its points, width, nib or the page
+    // width change. Rebuilding it for every stroke on every repaint is what
+    // made a full repaint cost tens of milliseconds on a busy page.
+    const pathCache = new WeakMap<
+      Point[],
+      { w: number; size: number; thinning: number; path: Path2D | null }
+    >();
+    const pathFor = (pts: Point[], w: number, strokeSize: number, thinning: number) => {
+      const hit = pathCache.get(pts);
+      if (hit && hit.w === w && hit.size === strokeSize && hit.thinning === thinning) {
+        return hit.path;
+      }
+      const abs: Point[] = pts.map(([x, y, pr]) => [x * w, y, pr]);
+      const d = strokeToPath(abs, strokeSize, thinning);
+      const path = d ? new Path2D(d) : null;
+      pathCache.set(pts, { w, size: strokeSize, thinning, path });
+      return path;
+    };
+
     const renderTo = (
       ctx: CanvasRenderingContext2D,
       w: number,
@@ -290,10 +312,8 @@ export function InkCanvas({
       alphaOverride?: number,
     ) => {
       const spec = TOOL_SPEC[tool] ?? TOOL_SPEC.pen;
-      const abs: Point[] = pts.map(([x, y, p]) => [x * w, y, p]);
-      const path = strokeToPath(abs, strokeSize, spec.thinning);
-      if (!path) return;
-      const p2d = new Path2D(path);
+      const p2d = pathFor(pts, w, strokeSize, spec.thinning);
+      if (!p2d) return;
       ctx.save();
       ctx.globalCompositeOperation = spec.composite;
       if (spec.grain) {
@@ -329,6 +349,10 @@ export function InkCanvas({
         // Mid-drag the selection is drawn transformed on the live canvas; if
         // it also stayed here the original would sit underneath as a ghost.
         if (hiddenRef.current.has(s.id)) continue;
+        // Same for a stroke being cut: it is drawn from its surviving runs on
+        // the live layer. Leaving the original here kept the erased part
+        // visible underneath, so erasing appeared to do nothing at all.
+        if (carveRef.current.has(s.id)) continue;
         renderTo(ctx, dims.w, s.points, s.color, s.size, s.tool);
       }
     };
@@ -514,6 +538,14 @@ export function InkCanvas({
       rafRef.current = requestAnimationFrame(() => {
         livePending = false;
         rafRef.current = null;
+        // A carve takes strokes off the committed layer. Doing that repaint
+        // inside the pointer handler stalled the frame the moment the eraser
+        // first touched each new stroke; here it costs one repaint per frame
+        // however many strokes were newly cut.
+        if (baseDirtyRef.current) {
+          baseDirtyRef.current = false;
+          paintBase();
+        }
         paintLive();
       });
     };
@@ -694,7 +726,7 @@ export function InkCanvas({
         carveRef.current.set(st.id, next);
       }
 
-      if (newlyAffected) paintBase();
+      if (newlyAffected) baseDirtyRef.current = true;
       scheduleLive();
     };
 
