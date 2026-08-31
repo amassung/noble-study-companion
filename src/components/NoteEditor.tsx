@@ -1,5 +1,6 @@
 import { useEditor, EditorContent, ReactNodeViewRenderer, type Editor } from "@tiptap/react";
 import { StarterKit } from "@tiptap/starter-kit";
+import { Extension } from "@tiptap/core";
 import { Underline } from "@tiptap/extension-underline";
 import { Highlight } from "@tiptap/extension-highlight";
 import { TextStyle, FontSize } from "@tiptap/extension-text-style";
@@ -10,7 +11,7 @@ import { Image } from "@tiptap/extension-image";
 import { AnnotationToolbar } from "@/components/AnnotationToolbar";
 import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
 import { useAnnotationContext } from "@/components/AnnotationContext";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -75,6 +76,7 @@ import { InkCanvas, type InkMode } from "@/components/InkCanvas";
 import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
 import { transcribeHandwriting } from "@/lib/ink/transcribe.functions";
+import { AudioRecorder } from "@/components/AudioRecorder";
 import { exportNoteToPdf } from "@/lib/export/export-note";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
@@ -95,6 +97,23 @@ const FONT_FAMILIES = [
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
 const MAX_SLIDE_PAGES = 20; // cap on rendered pages per import
+/**
+ * Tab nests a bullet, Shift-Tab lifts it back out — the behaviour every other
+ * editor has, and the one people reach for without thinking. Returning false
+ * outside a list leaves Tab alone so it still moves focus normally.
+ */
+const ListTabs = Extension.create({
+  name: "listTabs",
+  addKeyboardShortcuts() {
+    return {
+      Tab: () =>
+        this.editor.isActive("listItem") ? this.editor.commands.sinkListItem("listItem") : false,
+      "Shift-Tab": () =>
+        this.editor.isActive("listItem") ? this.editor.commands.liftListItem("listItem") : false,
+    };
+  },
+});
+
 const PAGE_HEIGHT = 1040; // px height of one "page" sheet before it rolls to the next
 // Visual break between pages. Wide enough to read as a gap between sheets.
 const PAGE_GAP = 26;
@@ -320,6 +339,22 @@ function ToolbarSelect({
 }
 
 function Toolbar({ editor }: { editor: Editor | null }) {
+  // The buttons read editor.isActive(...) at render time, but nothing was
+  // making this component render again when the selection or its marks
+  // changed — so Bold lit up once and then never updated, which reads as a
+  // button that will not turn off. Subscribe to the editor and re-render.
+  const [, bump] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (!editor) return;
+    const on = () => bump();
+    editor.on("transaction", on);
+    editor.on("selectionUpdate", on);
+    return () => {
+      editor.off("transaction", on);
+      editor.off("selectionUpdate", on);
+    };
+  }, [editor]);
+
   if (!editor) return null;
 
   const activeFontSize = (editor.getAttributes("textStyle").fontSize as string | undefined) ?? "";
@@ -510,6 +545,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // All ink edits go through the history hook so the canvas and the toolbar
   // share one undo stack.
   const ink = useInkHistory(noteId);
+  // Filled by the recorder with a getter for the current offset into the
+  // recording, or null when nothing is recording. Strokes carry it so a word
+  // can later seek the audio to the moment it was written.
+  const recordingClockRef = useRef<(() => number | null) | null>(null);
   // Handed a renderer by InkCanvas so the page can be read back as text.
   const inkSnapshotRef = useRef<(() => string | null) | null>(null);
   const callTranscribe = useServerFn(transcribeHandwriting);
@@ -1013,6 +1052,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      ListTabs,
       Underline,
       Highlight,
       TextStyle,
@@ -1088,36 +1128,57 @@ export function NoteEditor({ noteId, onClose }: Props) {
     }
   }, [hydrated, liveNote?.title, editor]);
 
-  // Keep the caret above the on-screen keyboard, the way Google Docs does.
-  // Padding alone only makes the room; the page still has to follow the caret
-  // into it as the student types past the fold.
+  // Keep the caret in view while typing.
+  //
+  // This used to run only when useKeyboardInset reported a keyboard, which is
+  // exactly the case it failed in: inside the iOS shell the web view is
+  // resized by the system rather than overlaid, so the measured inset is zero
+  // and the caret still ended up behind the keys. Measuring against the visual
+  // viewport instead works either way — resized or overlaid — and costs
+  // nothing when there is no keyboard at all.
   useEffect(() => {
-    if (!editor || !keyboardInset) return;
-    const el = scrollRef.current;
-    if (!el) return;
+    if (!editor) return;
 
     const follow = () => {
+      const el = scrollRef.current;
+      if (!el) return;
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const rect = sel.getRangeAt(0).getBoundingClientRect();
-      // A collapsed caret at the start of an empty block reports an empty
-      // rect; there is nothing meaningful to scroll to in that case.
+      // A collapsed caret in an empty block reports an empty rect; there is
+      // nothing meaningful to scroll to.
       if (!rect.height && !rect.top) return;
-      // One line of breathing room so the caret is never flush with the keys.
-      const limit = window.innerHeight - keyboardInset - 32;
-      if (rect.bottom > limit) el.scrollTop += rect.bottom - limit;
+
+      const vv = window.visualViewport;
+      const visibleTop = vv ? vv.offsetTop : 0;
+      const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+
+      // A line of breathing room, so the caret is never flush against the keys
+      // or tucked under the sticky toolbar.
+      const bottomLimit = visibleBottom - 44;
+      const topLimit = visibleTop + 96;
+
+      if (rect.bottom > bottomLimit) {
+        el.scrollTop += rect.bottom - bottomLimit;
+      } else if (rect.top < topLimit) {
+        el.scrollTop -= topLimit - rect.top;
+      }
     };
 
-    // Run after the DOM settles, so the rect reflects the character just typed.
+    // After the DOM settles, so the rect reflects the character just typed.
     const schedule = () => requestAnimationFrame(follow);
     editor.on("selectionUpdate", schedule);
     editor.on("update", schedule);
-    schedule();
+    // The keyboard appearing changes the visible area, not the caret.
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
     return () => {
       editor.off("selectionUpdate", schedule);
       editor.off("update", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
     };
-  }, [editor, keyboardInset]);
+  }, [editor]);
 
   // Lock body scroll while editor is open
   useEffect(() => {
@@ -1542,6 +1603,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
             )}
             <span className="hidden sm:inline">{pdfBtnLabel}</span>
           </button>
+
+          <AudioRecorder noteId={noteId} onElapsedRef={recordingClockRef} />
 
           {/* Export — the only way a note leaves the app, which matters
               anywhere work has to be printed or handed in. */}
