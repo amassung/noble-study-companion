@@ -68,7 +68,7 @@ function SettingsPage() {
             <div>
               <div className="text-[14px] font-medium">Theme</div>
               <div className="mt-0.5 text-[12px] text-muted-foreground">
-                Dark is the default. Light keeps the violet accent.
+                Light is the default. Dark keeps the violet accent.
               </div>
             </div>
             {/* Segmented toggle */}

@@ -1,26 +1,19 @@
 import type { LucideIcon } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  Home,
-  NotebookPen,
-  Brain,
-  BarChart3,
-  Settings,
-  Search,
-  User,
-  Sparkles,
-} from "lucide-react";
+import { Home, NotebookPen, Brain, Settings, Search, User, Sparkles } from "lucide-react";
 import { type ReactNode } from "react";
 import { LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth/auth-provider";
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
 
+// Progress is deliberately absent: /progress is still an empty placeholder,
+// and the sidebar shows on an iPad in landscape, so listing it just sends a
+// student to a blank screen. Put it back when the page has something on it.
 const desktopNav: NavItem[] = [
   { to: "/", label: "Home", icon: Home },
   { to: "/notes", label: "My Notes", icon: NotebookPen },
   { to: "/study", label: "Study Mode", icon: Brain },
-  { to: "/progress", label: "Progress", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
