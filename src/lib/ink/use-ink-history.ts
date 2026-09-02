@@ -7,7 +7,12 @@ import {
   useUpdateStrokeGeometryMutation,
 } from "./use-ink";
 
-type StrokeInput = Pick<InkStroke, "points" | "color" | "size" | "tool">;
+// tMs rides along so a stroke drawn during a recording keeps its offset all
+// the way to the row. Without it here the stamp is silently dropped in the
+// middle of the chain and every stroke lands with a null timestamp.
+type StrokeInput = Pick<InkStroke, "points" | "color" | "size" | "tool"> & {
+  tMs?: number | null;
+};
 
 /**
  * One reversible ink edit. `strokes` holds the affected strokes so undo can

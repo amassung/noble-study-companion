@@ -2059,6 +2059,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 size={inkSize}
                 snapshotRef={inkSnapshotRef}
                 eraserSize={eraserSize}
+                nowMs={() => recordingClockRef.current?.() ?? null}
                 strokes={ink.strokes}
                 addStroke={ink.addStroke}
                 eraseStrokes={ink.eraseStrokes}

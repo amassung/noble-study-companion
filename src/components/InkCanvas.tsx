@@ -126,13 +126,16 @@ export function InkCanvas({
   zoom = 1,
   snapshotRef,
   eraserSize = 24,
+  nowMs,
 }: {
   noteId: string;
   mode: InkMode;
   color: string;
   size: number;
   strokes: InkStroke[];
-  addStroke: (stroke: Pick<InkStroke, "points" | "color" | "size" | "tool">) => void;
+  addStroke: (
+    stroke: Pick<InkStroke, "points" | "color" | "size" | "tool"> & { tMs?: number | null },
+  ) => void;
   eraseStrokes: (ids: string[]) => void;
   // cx/cy are the pinch centre in client coords, so the page can zoom about
   // the point between the fingers instead of a fixed origin.
@@ -157,6 +160,12 @@ export function InkCanvas({
    */
   eraserSize?: number;
   /**
+   * Offset into the current recording, or null when nothing is recording.
+   * Stamped onto each finished stroke so a word can later seek the audio to
+   * the moment it was written.
+   */
+  nowMs?: () => number | null;
+  /**
    * Current page scale. Ink is rasterised, so a CSS transform would stretch
    * the bitmap and the handwriting would go soft exactly the way a zoomed web
    * page does. Feeding the scale in lets the canvas re-render its strokes at
@@ -174,6 +183,7 @@ export function InkCanvas({
   // so the latest values are mirrored here instead of in the dependency list.
   const propsRef = useRef({
     eraserSize,
+    nowMs,
     mode,
     color,
     size,
@@ -188,6 +198,7 @@ export function InkCanvas({
   });
   propsRef.current = {
     eraserSize,
+    nowMs,
     mode,
     color,
     size,
@@ -780,7 +791,7 @@ export function InkCanvas({
       const pts = activeRef.current;
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
       if (pts.length > 1 && isDrawTool(m)) {
-        add({ points: pts, color: c, size: s, tool: m });
+        add({ points: pts, color: c, size: s, tool: m, tMs: propsRef.current.nowMs?.() ?? null });
       }
       activeRef.current = [];
       scheduleLive();

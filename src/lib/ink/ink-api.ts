@@ -13,6 +13,14 @@ export interface InkStroke {
   color: string;
   size: number;
   tool: InkTool;
+  /**
+   * Milliseconds into the recording this stroke was drawn, or null when it was
+   * written with nothing recording. This is what lets a word seek the audio to
+   * the moment it was written.
+   */
+  tMs?: number | null;
+  /** The recording it belongs to. Attached once that recording is saved. */
+  audioId?: string | null;
 }
 
 interface InkRow {
@@ -22,9 +30,11 @@ interface InkRow {
   color: string;
   size: number;
   tool: InkTool;
+  t_ms: number | null;
+  audio_id: string | null;
 }
 
-const INK_SELECT = "id, note_id, points, color, size, tool";
+const INK_SELECT = "id, note_id, points, color, size, tool, t_ms, audio_id";
 
 function rowToStroke(row: InkRow): InkStroke {
   return {
@@ -34,6 +44,8 @@ function rowToStroke(row: InkRow): InkStroke {
     color: row.color,
     size: row.size,
     tool: row.tool,
+    tMs: row.t_ms,
+    audioId: row.audio_id,
   };
 }
 
@@ -89,7 +101,7 @@ export async function fetchInkForNotes(noteIds: string[]): Promise<Record<string
 
 export async function createStroke(
   noteId: string,
-  stroke: Pick<InkStroke, "points" | "color" | "size" | "tool">,
+  stroke: Pick<InkStroke, "points" | "color" | "size" | "tool"> & { tMs?: number | null },
 ): Promise<InkStroke> {
   const supabase = getSupabaseClient();
   const userId = await requireUserId();
@@ -102,6 +114,7 @@ export async function createStroke(
       color: stroke.color,
       size: stroke.size,
       tool: stroke.tool,
+      t_ms: stroke.tMs ?? null,
     })
     .select(INK_SELECT)
     .single();
@@ -148,4 +161,22 @@ export async function updateStrokeGeometry(updates: StrokeGeometry[]): Promise<v
     // missing; surface that instead of pretending the move was saved.
     if (!data || data.length === 0) throw new Error("Stroke update affected no rows");
   }
+}
+
+/**
+ * Attach strokes written during a recording to that recording.
+ *
+ * Strokes are stamped with an offset as they are drawn, but the recording has
+ * no id until it is saved — so the link is made afterwards, over everything on
+ * this note that carries an offset and is not yet claimed.
+ */
+export async function linkStrokesToRecording(noteId: string, audioId: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from("note_ink")
+    .update({ audio_id: audioId })
+    .eq("note_id", noteId)
+    .is("audio_id", null)
+    .not("t_ms", "is", null);
+  if (error) throw error;
 }
