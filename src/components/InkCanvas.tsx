@@ -123,6 +123,7 @@ export function InkCanvas({
   onGestureEnd,
   moveStrokes,
   onTapEmpty,
+  onTapStroke,
   zoom = 1,
   snapshotRef,
   eraserSize = 24,
@@ -147,6 +148,12 @@ export function InkCanvas({
   moveStrokes?: (updates: StrokeGeometry[]) => void;
   /** A tap on blank page in select mode — the caller puts the caret there. */
   onTapEmpty?: (clientX: number, clientY: number) => void;
+  /**
+   * A tap that landed on a stroke in select mode. Carries the offset into the
+   * recording that stroke was written during, when there is one — which is
+   * what lets tapping a word jump the audio to the moment it was written.
+   */
+  onTapStroke?: (stroke: InkStroke) => void;
   /**
    * Filled in with a function that renders the committed ink to a PNG data
    * URL, so a page of handwriting can be handed to a vision model and read
@@ -194,6 +201,7 @@ export function InkCanvas({
     onGestureEnd,
     moveStrokes,
     onTapEmpty,
+    onTapStroke,
     zoom,
   });
   propsRef.current = {
@@ -209,6 +217,7 @@ export function InkCanvas({
     onGestureEnd,
     moveStrokes,
     onTapEmpty,
+    onTapStroke,
     zoom,
   };
 
@@ -1143,8 +1152,22 @@ export function InkCanvas({
           const box = ids.length ? boundsOf(ids, host_w) : null;
           selectionRef.current = box ? { ids, box } : null;
         } else if (st) {
-          // A tap on blank page: let the caller put the text caret there.
-          propsRef.current.onTapEmpty?.(st.clientX, st.clientY);
+          // A tap, not a lasso. If it landed on a stroke, hand that stroke up —
+          // tapping a word is how a recording is navigated. Otherwise treat it
+          // as a tap on blank page and let the caller place the caret.
+          const TAP_SLOP = 14;
+          const hit = propsRef.current.strokes.find((s2) => {
+            for (let i = 1; i < s2.points.length; i++) {
+              const ax = s2.points[i - 1][0] * host_w;
+              const ay = s2.points[i - 1][1];
+              const bx = s2.points[i][0] * host_w;
+              const by = s2.points[i][1];
+              if (distToSegment(st.x, st.y, ax, ay, bx, by) <= TAP_SLOP) return true;
+            }
+            return false;
+          });
+          if (hit) propsRef.current.onTapStroke?.(hit);
+          else propsRef.current.onTapEmpty?.(st.clientX, st.clientY);
         }
         scheduleLive();
         return;

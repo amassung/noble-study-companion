@@ -77,6 +77,7 @@ import { InkToolbar, INK_COLORS } from "@/components/InkToolbar";
 import { useInkHistory } from "@/lib/ink/use-ink-history";
 import { transcribeHandwriting } from "@/lib/ink/transcribe.functions";
 import { AudioRecorder } from "@/components/AudioRecorder";
+import { RecordingPlayer } from "@/components/RecordingPlayer";
 import { exportNoteToPdf } from "@/lib/export/export-note";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
@@ -549,6 +550,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // recording, or null when nothing is recording. Strokes carry it so a word
   // can later seek the audio to the moment it was written.
   const recordingClockRef = useRef<(() => number | null) | null>(null);
+  // Filled by the player so a tap on handwriting can move the playhead.
+  const seekAudioRef = useRef<((ms: number) => void) | null>(null);
   // Handed a renderer by InkCanvas so the page can be read back as text.
   const inkSnapshotRef = useRef<(() => string | null) | null>(null);
   const callTranscribe = useServerFn(transcribeHandwriting);
@@ -1919,6 +1922,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
               </div>
             </div>
 
+            <RecordingPlayer noteId={noteId} seekRef={seekAudioRef} />
+
             {/* Generate Study Guide */}
             <button
               onClick={() => setLearnOpen(true)}
@@ -2060,6 +2065,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 snapshotRef={inkSnapshotRef}
                 eraserSize={eraserSize}
                 nowMs={() => recordingClockRef.current?.() ?? null}
+                onTapStroke={(stroke) => {
+                  // Only ink written while recording has a moment to jump to.
+                  if (stroke.tMs == null) return;
+                  seekAudioRef.current?.(stroke.tMs);
+                }}
                 strokes={ink.strokes}
                 addStroke={ink.addStroke}
                 eraseStrokes={ink.eraseStrokes}
