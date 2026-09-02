@@ -82,7 +82,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      // interactive-widget tells the browser to shrink the layout viewport
+      // when the on-screen keyboard appears, rather than overlaying content.
+      // With it, ordinary scrolling keeps the caret visible; without it the
+      // page has to chase the caret manually, which is the bug students hit
+      // when typing past the fold. Ignored where unsupported.
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, interactive-widget=resizes-content",
+      },
       // Matches the light default (--background), so browser and PWA chrome
       // don't render a dark bar above a white app.
       { name: "theme-color", content: "#fafaf8" },

@@ -11,6 +11,7 @@ import {
   type RecordingSession,
 } from "@/lib/audio/recorder";
 import { saveRecording } from "@/lib/audio/audio-api";
+import { linkStrokesToRecording } from "@/lib/ink/ink-api";
 
 const fmt = (ms: number) => {
   const total = Math.floor(ms / 1000);
@@ -86,7 +87,15 @@ export function AudioRecorder({
     async (blob: Blob, durationMs: number, startedAt: number, sessionId: string) => {
       setSaving(true);
       try {
-        await saveRecording({ noteId, blob, durationMs, startedAt });
+        const rec = await saveRecording({ noteId, blob, durationMs, startedAt });
+        // Strokes were stamped with an offset as they were drawn but had no
+        // recording to belong to yet. Claim them now. A failure here costs the
+        // link, not the audio, so it must not fail the save.
+        try {
+          await linkStrokesToRecording(noteId, rec.id);
+        } catch {
+          /* the recording is safe; only the stroke-to-audio link is missing */
+        }
         // Only now is the local copy redundant.
         await clearSession(sessionId);
         toast.success(`Recording saved — ${fmt(durationMs)}`);
