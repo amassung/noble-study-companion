@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireUser } from "@/lib/supabase/require-user.server";
 import { anthropicHeaders, anthropicError } from "@/lib/ai/anthropic.server";
+import { plainTextFromHtml, MIN_STUDY_CHARS } from "@/lib/study/note-text";
 
 export type StudyGuide = {
   title: string;
@@ -23,7 +24,11 @@ Return ONLY valid JSON matching this exact shape (no markdown, no commentary):
 Rules:
 - 3 to 5 items in each array.
 - Clear, plain English. No filler. No emojis.
-- If the notes are sparse, infer reasonable adjacent concepts a student would need.`;
+- Ground every concept, term, and question in the notes themselves. A student
+  revises from this and assumes it reflects their lecture, so material you
+  introduce that the notes do not support is worse than no material at all.
+- Never expand on the title alone. If the notes are thin, return fewer items —
+  an array may be empty. Do not pad it out with what the subject usually covers.`;
 
 function tryParse(raw: string): StudyGuide | null {
   // Strip code fences if the model added them anyway
@@ -66,12 +71,27 @@ export const generateStudyGuide = createServerFn({ method: "POST" })
 
     const model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
 
+    // Everything below reasons about prose. The body is editor HTML, and its
+    // img tags for imported slides are not something a model can study from.
+    const noteText = plainTextFromHtml(data.body);
+
+    // A title and an imported-slide heading are not notes. Left to run, the
+    // model fills the gap from the title and hands a student a confident study
+    // guide for a lecture they never had.
+    if (noteText.length < MIN_STUDY_CHARS) {
+      throw new Error(
+        "There isn't enough text in this note to build a study guide from. " +
+          "If it's handwriting, convert it to text first; if it's imported " +
+          "slides, import them as Raw Text or Condensed so Nobi can read them.",
+      );
+    }
+
     const userPrompt = [
       data.subjectLabel ? `Subject: ${data.subjectLabel}` : null,
       data.title ? `Note title: ${data.title}` : null,
       "",
       "Notes:",
-      data.body || "(empty)",
+      noteText,
     ]
       .filter(Boolean)
       .join("\n");

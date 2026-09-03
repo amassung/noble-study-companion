@@ -541,3 +541,11 @@ html.light .tiptap img {
 .ink-active .tiptap p.is-editor-empty::before {
   content: none;
 }
+
+/* An imported slide is a page, painted behind the ink layer by NoteEditor.
+   Tiptap still holds the image node — that is where the URL is persisted —
+   but it must not draw a second copy into the text flow, or the slide
+   appears twice and the page bands slice through the inline one. */
+.tiptap [data-node-view-wrapper]:has(img[alt^="Slide "]) {
+  display: none;
+}

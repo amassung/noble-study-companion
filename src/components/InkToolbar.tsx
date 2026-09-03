@@ -16,17 +16,30 @@ import type { InkMode } from "@/components/InkCanvas";
 
 export const INK_COLORS = [
   { label: "Black", value: "#1f2937" },
+  { label: "Graphite", value: "#6b7280" },
   { label: "White", value: "#f4f4f5" },
   { label: "Blue", value: "#2563eb" },
-  { label: "Red", value: "#dc2626" },
-  { label: "Violet", value: "#7c3aed" },
+  { label: "Navy", value: "#1e3a8a" },
+  { label: "Teal", value: "#0d9488" },
   { label: "Green", value: "#059669" },
+  { label: "Lime", value: "#65a30d" },
+  { label: "Amber", value: "#d97706" },
+  { label: "Orange", value: "#ea580c" },
+  { label: "Red", value: "#dc2626" },
+  { label: "Crimson", value: "#be123c" },
+  { label: "Pink", value: "#db2777" },
+  { label: "Violet", value: "#7c3aed" },
+  { label: "Indigo", value: "#4f46e5" },
+  { label: "Brown", value: "#78350f" },
 ] as const;
 
 export const HIGHLIGHT_INK_COLORS = [
   { label: "Yellow", value: "#fde047" },
   { label: "Green", value: "#86efac" },
   { label: "Pink", value: "#f9a8d4" },
+  { label: "Blue", value: "#93c5fd" },
+  { label: "Orange", value: "#fdba74" },
+  { label: "Violet", value: "#d8b4fe" },
 ] as const;
 
 /** Eraser tip radius in page px — fine enough for one letter, broad enough
@@ -247,6 +260,33 @@ export function InkToolbar({
               style={{ backgroundColor: c.value }}
             />
           ))}
+
+          {/* Any other colour.
+              A native colour input is deliberate: on iPad it opens the system
+              picker — wheel, spectrum and sliders — which is a better tool
+              than anything hand-rolled here, and it costs no custom UI. */}
+          <label
+            title="Custom colour"
+            className={cn(
+              "relative h-6 w-6 shrink-0 cursor-pointer rounded-full border transition-transform hover:scale-105",
+              palette.some((c) => c.value === color)
+                ? "border-border/60"
+                : "scale-110 border-primary ring-2 ring-primary/40",
+            )}
+            style={{
+              background: palette.some((c) => c.value === color)
+                ? "conic-gradient(#dc2626,#d97706,#65a30d,#0d9488,#2563eb,#7c3aed,#db2777,#dc2626)"
+                : color,
+            }}
+          >
+            <input
+              type="color"
+              value={color}
+              aria-label="Custom colour"
+              onChange={(e) => setColor(e.target.value)}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
+          </label>
 
           <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
           {PEN_SIZES.map((s) => (

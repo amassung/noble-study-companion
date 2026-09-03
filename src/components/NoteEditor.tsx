@@ -11,7 +11,15 @@ import { Image } from "@tiptap/extension-image";
 import { AnnotationToolbar } from "@/components/AnnotationToolbar";
 import { AnnotatedSlideView } from "@/components/AnnotatedSlide";
 import { useAnnotationContext } from "@/components/AnnotationContext";
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -79,6 +87,7 @@ import { transcribeHandwriting } from "@/lib/ink/transcribe.functions";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { RecordingPlayer } from "@/components/RecordingPlayer";
 import { exportNoteToPdf } from "@/lib/export/export-note";
+import { plainTextFromHtml, MIN_STUDY_CHARS } from "@/lib/study/note-text";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
@@ -97,7 +106,7 @@ const FONT_FAMILIES = [
 ] as const;
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB client-side guard
-const MAX_SLIDE_PAGES = 20; // cap on rendered pages per import
+const MAX_SLIDE_PAGES = 60; // cap on rendered pages per import (a full lecture deck)
 /**
  * Tab nests a bullet, Shift-Tab lifts it back out — the behaviour every other
  * editor has, and the one people reach for without thinking. Returning false
@@ -1004,7 +1013,25 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // …and pages the student asked for. A blank page you can write on before
   // the previous one is full is the normal way a paper notebook works.
   const [manualPages, setManualPages] = useState(1);
-  const pageCount = Math.max(derivedPages, manualPages);
+  /**
+   * Imported slides, in page order.
+   *
+   * The URLs live in the note body because that is what gets persisted, but a
+   * slide is not a picture sitting in a paragraph — it is the page. Reading
+   * them back out here lets the page stack paint each one as its own sheet,
+   * which is what makes handwriting land on the slide instead of beside it.
+   */
+  const slideUrls = useMemo(() => {
+    const out: string[] = [];
+    for (const tag of body.match(/<img\b[^>]*>/gi) ?? []) {
+      if (!tag.includes("data-slide-key=")) continue;
+      const src = /src="([^"]+)"/.exec(tag)?.[1];
+      if (src) out.push(src);
+    }
+    return out;
+  }, [body]);
+
+  const pageCount = Math.max(derivedPages, manualPages, slideUrls.length);
   const [currentPage, setCurrentPage] = useState(0);
   const pageMarkersRef = useRef<(HTMLDivElement | null)[]>([]);
   const currentPageRef = useRef(0);
@@ -1120,6 +1147,27 @@ export function NoteEditor({ noteId, onClose }: Props) {
     });
     setHydrated(true);
   }, [liveNote, hydrated, editor]);
+
+  /**
+   * Hand the page to the Pencil, not to Scribble.
+   *
+   * iPadOS aims Scribble at whatever editable region sits under the pen. The
+   * Tiptap surface stays mounted beneath the ink canvas, so with a nib
+   * selected the system claims each stroke as handwriting-to-text: the
+   * keyboard bar rises and the page collects touch-down dots instead of
+   * writing. Nothing on the canvas side can win that fight — the editable
+   * target has to be gone for as long as the nib is out.
+   */
+  useEffect(() => {
+    if (!editor) return;
+    const drawing = inkMode !== "off";
+    editor.setEditable(!drawing);
+    if (!drawing) return;
+    editor.commands.blur();
+    // Blur whatever else holds focus too, or the keyboard bar stays up and
+    // Scribble stays armed against it.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }, [editor, inkMode]);
 
   // Focus title on open
   useEffect(() => {
@@ -1491,7 +1539,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
   };
 
   const lastSavedAt = liveNote.updatedAt;
-  const plainBodyLength = body.replace(/<[^>]*>/g, "").trim().length;
+  const plainBodyLength = plainTextFromHtml(body).length;
+  const hasEnoughToStudy = plainBodyLength >= MIN_STUDY_CHARS;
 
   // Import PDF button label
   const pdfBtnLabel =
@@ -1927,7 +1976,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
             {/* Generate Study Guide */}
             <button
               onClick={() => setLearnOpen(true)}
-              disabled={plainBodyLength < 20}
+              disabled={!hasEnoughToStudy}
               className="group mb-4 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
               aria-label="Generate study guide"
             >
@@ -1939,14 +1988,16 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   Learn this note
                 </span>
                 <span className="mt-0.5 block text-[12.5px] text-white/80">
-                  {plainBodyLength < 20
-                    ? // A page covered in ink still counts as empty here,
-                      // because everything downstream reads the typed body.
-                      // Point at the way across rather than saying "write a
-                      // few sentences" to someone who just wrote a full page.
+                  {!hasEnoughToStudy
+                    ? // Ink and imported slides both look empty here, because
+                      // everything downstream reads the typed body. Point at
+                      // the way across rather than telling someone who just
+                      // filled a page to "write a few sentences".
                       ink.strokes.length > 0
                       ? "Convert your handwriting to text first, then study it"
-                      : "Write a few sentences first…"
+                      : hasSlides
+                        ? "Import these slides as Raw Text or Condensed so Nobi can read them"
+                        : "Write a few sentences first…"
                     : "Smart notes, flashcards, practice questions — and ask anything."}
                 </span>
               </span>
@@ -2042,6 +2093,25 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   }}
                   className="pointer-events-none absolute inset-x-0 h-px"
                   style={{ top: `${i * PAGE_HEIGHT}px`, scrollSnapAlign: "start" }}
+                />
+              ))}
+
+              {/* Imported slides, one per page, behind everything else.
+                  Sitting under the ink layer is the whole point: the Pencil
+                  writes on the slide the way it would on a printed handout. */}
+              {slideUrls.map((src, i) => (
+                <img
+                  key={`slide-${i}`}
+                  src={src}
+                  alt=""
+                  aria-hidden
+                  draggable={false}
+                  className="pointer-events-none absolute inset-x-0 z-0 select-none object-contain"
+                  style={{
+                    top: `${i * PAGE_HEIGHT}px`,
+                    height: `${PAGE_HEIGHT - PAGE_GAP}px`,
+                    width: "100%",
+                  }}
                 />
               ))}
 
