@@ -517,7 +517,9 @@ function NotesPage() {
             </span>
           </button>
         ) : (
-          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-6 grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 lg:grid-cols-6">
+            {/* Covers are books now, so they want a shelf: more per row and a
+                tighter gutter than the old card grid. */}
             {/* All Notes virtual cover — always first */}
             <VirtualNotebookCover
               label="All Notes"

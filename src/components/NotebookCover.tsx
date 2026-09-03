@@ -1,6 +1,50 @@
-import { BookOpen, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NOTEBOOK_COLORS, type StoredNotebook } from "@/lib/notebooks/types";
+
+/**
+ * A notebook on the shelf.
+ *
+ * Drawn as a book rather than a list row: a portrait cover in the notebook's
+ * own colour, with a spine down the left edge and the title set underneath
+ * the way a shelf reads. Students pick a notebook by recognising it, not by
+ * reading it — the emoji and colour they chose at creation are the whole
+ * identity, so the cover has to be the thing that carries them.
+ */
+
+/** The cover art itself, shared by real notebooks and the virtual ones. */
+function Cover({ emoji, bar, className }: { emoji: string; bar: string; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "relative flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-lg rounded-l-[5px] shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55)] ring-1 ring-black/10 transition-transform duration-200",
+        "bg-gradient-to-br",
+        bar,
+        className,
+      )}
+    >
+      {/* Spine: a darker band with a highlight down its inner edge, which is
+          what stops the cover reading as a plain coloured rectangle. */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-[13%] bg-black/20 shadow-[inset_-1px_0_0_rgba(255,255,255,0.22)]"
+      />
+      {/* Page block peeking out along the fore-edge. */}
+      <span
+        aria-hidden
+        className="absolute inset-y-[3%] right-0 w-[3px] rounded-r-sm bg-white/70"
+      />
+      {/* A soft sheen across the top corner. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/10"
+      />
+      <span className="relative translate-x-[5%] text-[clamp(1.75rem,4.5vw,2.5rem)] leading-none drop-shadow-sm">
+        {emoji}
+      </span>
+    </span>
+  );
+}
 
 type Props = {
   notebook: StoredNotebook;
@@ -23,7 +67,6 @@ export function NotebookCover({
 
   return (
     <div style={style} className={`relative animate-float-in ${editMode ? "note-wiggle" : ""}`}>
-      {/* Edit-mode delete badge */}
       {editMode && onDelete && (
         <button
           type="button"
@@ -42,38 +85,28 @@ export function NotebookCover({
         type="button"
         onClick={() => !editMode && onOpen(notebook.id)}
         className={cn(
-          "group relative flex w-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-[var(--surface)] p-5 text-left shadow-card transition-all duration-200",
-          editMode
-            ? "cursor-default opacity-80"
-            : "hover-glow cursor-pointer hover:-translate-y-0.5",
+          "group flex w-full flex-col text-left",
+          editMode ? "cursor-default opacity-80" : "cursor-pointer",
         )}
       >
-        {/* Coloured left bar */}
-        <span
-          className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${c.bar} opacity-80 group-hover:opacity-100`}
+        <Cover
+          emoji={notebook.emoji}
+          bar={c.bar}
+          className={editMode ? undefined : "group-hover:-translate-y-1"}
         />
 
-        {/* Emoji */}
-        <span className="mb-3 text-3xl leading-none">{notebook.emoji}</span>
-
-        {/* Name */}
-        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight text-foreground">
+        <h3 className="mt-2.5 line-clamp-2 text-[13.5px] font-semibold leading-snug tracking-tight text-foreground">
           {notebook.name || <span className="text-muted-foreground">Untitled notebook</span>}
         </h3>
-
-        {/* Meta row */}
-        <div className="mt-auto flex items-center justify-between pt-4">
-          <span className={cn("text-[11.5px] font-medium", c.text)}>
-            {noteCount} {noteCount === 1 ? "note" : "notes"}
-          </span>
-          <BookOpen className={cn("h-3.5 w-3.5 opacity-50", c.text)} />
-        </div>
+        <span className="mt-0.5 text-[11.5px] text-muted-foreground">
+          {noteCount} {noteCount === 1 ? "note" : "notes"}
+        </span>
       </button>
     </div>
   );
 }
 
-// ── "All Notes" virtual cover ─────────────────────────────────────────────────
+// ── "All Notes" / "Uncategorized" virtual covers ─────────────────────────────
 
 type VirtualCoverProps = {
   label: string;
@@ -90,28 +123,22 @@ export function VirtualNotebookCover({
   noteCount,
   style,
   onOpen,
-  bar = "from-primary to-secondary",
+  bar = "from-violet-500 to-purple-500",
 }: VirtualCoverProps) {
   return (
     <div style={style} className="animate-float-in">
       <button
         type="button"
         onClick={onOpen}
-        className="group relative flex w-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-[var(--surface)] p-5 text-left shadow-card transition-all duration-200 hover-glow cursor-pointer hover:-translate-y-0.5"
+        className="group flex w-full cursor-pointer flex-col text-left"
       >
-        <span
-          className={`absolute inset-y-3 left-0 w-[3px] rounded-full bg-gradient-to-b ${bar} opacity-80 group-hover:opacity-100`}
-        />
-        <span className="mb-3 text-3xl leading-none">{emoji}</span>
-        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight text-foreground">
+        <Cover emoji={emoji} bar={bar} className="group-hover:-translate-y-1" />
+        <h3 className="mt-2.5 line-clamp-2 text-[13.5px] font-semibold leading-snug tracking-tight text-foreground">
           {label}
         </h3>
-        <div className="mt-auto flex items-center justify-between pt-4">
-          <span className="text-[11.5px] font-medium text-primary">
-            {noteCount} {noteCount === 1 ? "note" : "notes"}
-          </span>
-          <BookOpen className="h-3.5 w-3.5 text-primary opacity-50" />
-        </div>
+        <span className="mt-0.5 text-[11.5px] text-muted-foreground">
+          {noteCount} {noteCount === 1 ? "note" : "notes"}
+        </span>
       </button>
     </div>
   );
