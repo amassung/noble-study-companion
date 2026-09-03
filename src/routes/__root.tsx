@@ -89,7 +89,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       // when typing past the fold. Ignored where unsupported.
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1, interactive-widget=resizes-content",
+        // maximum-scale/user-scalable stop WKWebView running its own pinch
+        // zoom. The page owns zooming — focal point, momentum, and ink
+        // re-rasterised sharp at the new scale — and the browser's version
+        // fights it, scaling the whole UI including the toolbar. That is the
+        // "it feels like Safari" complaint, because it was Safari.
+        content:
+          "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content",
       },
       // Matches the light default (--background), so browser and PWA chrome
       // don't render a dark bar above a white app.

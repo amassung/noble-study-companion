@@ -549,3 +549,11 @@ html.light .tiptap img {
 .tiptap [data-node-view-wrapper]:has(img[alt^="Slide "]) {
   display: none;
 }
+
+/* Keep gestures inside the page. Without this, a pan that reaches the end of
+   the note rubber-bands the whole web view, which reads as the browser
+   moving rather than the paper. */
+html,
+body {
+  overscroll-behavior: none;
+}
