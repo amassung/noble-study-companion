@@ -22,14 +22,31 @@ export interface ExtractedPdf {
   truncated: boolean;
 }
 
+/**
+ * Run one step, and if it fails say which step it was.
+ *
+ * This path works in every browser we can reach and fails on iOS with a bare
+ * "undefined is not a function" — a message that names no API and no line.
+ * Labelling each step means the next failure report identifies the call
+ * itself, instead of costing another round trip to narrow down.
+ */
+async function step<T>(label: string, run: () => Promise<T> | T): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`PDF read failed at ${label}: ${detail}`);
+  }
+}
+
 export async function extractPdfText(file: File): Promise<ExtractedPdf> {
-  const [pdfjs, { default: workerSrc }] = await Promise.all([
-    import("pdfjs-dist"),
-    import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
-  ]);
+  const [pdfjs, { default: workerSrc }] = await step("loading pdf.js", () =>
+    Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")]),
+  );
   pdfjs.GlobalWorkerOptions.workerSrc = workerSrc as string;
 
-  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const buf = await step("reading the file", () => file.arrayBuffer());
+  const pdf = await step("opening the document", () => pdfjs.getDocument({ data: buf }).promise);
 
   // Prefer the document's own title; fall back to the filename.
   let title = "";
@@ -46,7 +63,8 @@ export async function extractPdfText(file: File): Promise<ExtractedPdf> {
   const parts: string[] = [];
   let chars = 0;
   for (let i = 1; i <= pdf.numPages && chars < MAX_BODY_CHARS; i++) {
-    const content = await (await pdf.getPage(i)).getTextContent();
+    const page = await step(`opening page ${i}`, () => pdf.getPage(i));
+    const content = await step(`reading text on page ${i}`, () => page.getTextContent());
     const pageText = content.items
       .map((it) => (typeof it === "object" && it && "str" in it ? String(it.str) : ""))
       .join(" ")

@@ -180,6 +180,9 @@ export function InkCanvas({
    */
   zoom?: number;
 }) {
+  // True while the stroke in flight is being drawn with a stylus. Touches
+  // that arrive during one are the hand resting on the glass, not a gesture.
+  const penStrokeRef = useRef(false);
   const [diagTick, setDiagTick] = useState(0);
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
@@ -797,6 +800,7 @@ export function InkCanvas({
     const finish = () => {
       if (!drawingRef.current) return;
       drawingRef.current = false;
+      penStrokeRef.current = false;
       commitCarve();
       const pts = activeRef.current;
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
@@ -885,12 +889,19 @@ export function InkCanvas({
       if (propsRef.current.mode === "off") return;
 
       if (e.pointerType === "touch") {
+        // A hand resting on the page while writing lands as two or more touch
+        // contacts. Counting those as a pinch aborted the stroke the pen was
+        // in the middle of, so every stroke died at its first sample and the
+        // page filled with dots. While a stylus is drawing, touches are palm:
+        // ignore them outright rather than letting them cancel anything.
+        if (penStrokeRef.current && drawingRef.current) return;
         touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (touchesRef.current.size >= 2) {
-          // A second finger landed: this is a gesture, not a stroke. Abandon
+          // A second finger landed with no pen down: a real gesture. Abandon
           // any stroke in progress so a pinch never leaves a stray mark.
           drawingRef.current = false;
           activeRef.current = [];
+          penStrokeRef.current = false;
           scheduleLive();
           syncGesture();
           return;
@@ -1004,6 +1015,7 @@ export function InkCanvas({
         /* capture unavailable — the stroke still tracks via move events */
       }
       drawingRef.current = true;
+      penStrokeRef.current = e.pointerType === "pen";
       const pt = pointFrom(e);
       if (propsRef.current.mode === "eraser") {
         eraserTipRef.current = { x: pt[0] * host.offsetWidth, y: pt[1] };
@@ -1026,6 +1038,7 @@ export function InkCanvas({
       }
 
       // Two-finger pan + pinch-zoom, reported to the page so it can transform.
+      if (penStrokeRef.current && drawingRef.current && e.pointerType === "touch") return;
       if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
         touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (touchesRef.current.size >= 2) {
