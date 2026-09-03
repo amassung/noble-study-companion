@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool, StrokeGeometry } from "@/lib/ink/ink-api";
 import { inkResolution } from "@/lib/ink/resolution";
@@ -180,6 +180,7 @@ export function InkCanvas({
    */
   zoom?: number;
 }) {
+  const [diagTick, setDiagTick] = useState(0);
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
   const baseRef = useRef<HTMLCanvasElement>(null);
@@ -1194,6 +1195,37 @@ export function InkCanvas({
     // crosses a hit-test boundary, which ended each stroke a sample or two in
     // and left a trail of dots instead of handwriting.
     const opts: AddEventListenerOptions = { passive: false };
+    // ── Temporary field diagnostic ────────────────────────────────────
+    // The Pencil is dropping strokes on device and not in any environment we
+    // can reproduce in, so count what actually arrives rather than reason
+    // about it. "down 12 / move 3 / up 0 / cancel 12" and "down 12 / move 400"
+    // are opposite bugs, and the numbers say which without another guess.
+    const diag = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag ?? {
+      down: 0,
+      move: 0,
+      moveSamples: 0,
+      up: 0,
+      cancel: 0,
+      pen: 0,
+      touch: 0,
+    };
+    (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag = diag;
+    const count = (e: PointerEvent, key: string) => {
+      diag[key] = (diag[key] ?? 0) + 1;
+      if (e.pointerType === "pen") diag.pen += 1;
+      if (e.pointerType === "touch") diag.touch += 1;
+      if (key === "move") diag.moveSamples += e.getCoalescedEvents?.().length || 1;
+      setDiagTick((n) => n + 1);
+    };
+    const onDownDiag = (e: PointerEvent) => count(e, "down");
+    const onMoveDiag = (e: PointerEvent) => count(e, "move");
+    const onUpDiag = (e: PointerEvent) => count(e, "up");
+    const onCancelDiag = (e: PointerEvent) => count(e, "cancel");
+    host.addEventListener("pointerdown", onDownDiag, opts);
+    host.addEventListener("pointermove", onMoveDiag, opts);
+    host.addEventListener("pointerup", onUpDiag, opts);
+    host.addEventListener("pointercancel", onCancelDiag, opts);
+
     host.addEventListener("pointerdown", onDown, opts);
     host.addEventListener("pointermove", onMove, opts);
     host.addEventListener("pointerup", onUp, opts);
@@ -1226,6 +1258,10 @@ export function InkCanvas({
     ro.observe(host);
 
     return () => {
+      host.removeEventListener("pointerdown", onDownDiag, opts);
+      host.removeEventListener("pointermove", onMoveDiag, opts);
+      host.removeEventListener("pointerup", onUpDiag, opts);
+      host.removeEventListener("pointercancel", onCancelDiag, opts);
       host.removeEventListener("pointerdown", onDown, opts);
       host.removeEventListener("pointermove", onMove, opts);
       host.removeEventListener("pointerup", onUp, opts);
@@ -1272,6 +1308,19 @@ export function InkCanvas({
     >
       <canvas ref={baseRef} className="absolute inset-0 h-full w-full" />
       <canvas ref={liveRef} className="absolute inset-0 h-full w-full" />
+      {/* Temporary: remove once the on-device stroke loss is understood. */}
+      {mode !== "off" && (
+        <div
+          data-ink-diag
+          className="pointer-events-none absolute left-1 top-1 z-50 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] leading-tight text-white"
+        >
+          {(() => {
+            const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag ?? {};
+            void diagTick;
+            return `dn${d.down ?? 0} mv${d.move ?? 0}/${d.moveSamples ?? 0} up${d.up ?? 0} cx${d.cancel ?? 0} pen${d.pen ?? 0} tch${d.touch ?? 0}`;
+          })()}
+        </div>
+      )}
     </div>
   );
 }

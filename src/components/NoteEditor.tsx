@@ -66,7 +66,8 @@ import {
   type SavedGuide,
   type StoredNote,
 } from "@/lib/notes/use-notes";
-import { importPdf, condensePdfContent } from "@/lib/pdf/import-pdf.functions";
+import { condensePdfContent } from "@/lib/pdf/import-pdf.functions";
+import { extractPdfText } from "@/lib/pdf/extract-pdf-text";
 import { uploadSlideImages, uploadNoteImage, MAX_IMAGE_BYTES } from "@/lib/storage/upload-slides";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
@@ -530,7 +531,6 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const updateMutation = useUpdateNoteMutation();
   const deleteMutation = useDeleteNoteMutation();
   const setTestDateMutation = useSetTestDateMutation();
-  const callImportPdf = useServerFn(importPdf);
   const callCondense = useServerFn(condensePdfContent);
 
   const [title, setTitle] = useState("");
@@ -1402,17 +1402,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
     try {
       setPdfPhase("extracting");
 
-      const fileBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          resolve(result.split(",")[1] ?? result);
-        };
-        reader.onerror = () => reject(new Error("Failed to read file"));
-        reader.readAsDataURL(file);
-      });
-
-      const extracted = await callImportPdf({ data: { fileBase64, filename: file.name } });
+      const extracted = await extractPdfText(file);
 
       // Show choice modal — user decides what to do with the content
       setPendingPdf({
