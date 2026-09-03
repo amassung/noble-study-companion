@@ -47,6 +47,7 @@ import {
   FileUp,
   Download,
   ChevronLeft,
+  PanelLeft,
   ChevronRight,
   Plus,
   FileText,
@@ -627,6 +628,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   };
   const { theme } = useTheme();
   const [inkMode, setInkMode] = useState<InkMode>("off");
+  const [pagesOpen, setPagesOpen] = useState(false);
   // Page zoom. Writing at 100% on a tablet produces oversized handwriting —
   // zooming in to write at a natural hand size is the normal GoodNotes
   // workflow, so the page scales rather than the pen.
@@ -1708,612 +1710,688 @@ export function NoteEditor({ noteId, onClose }: Props) {
       {hasSlides && <AnnotationToolbar />}
 
       {/* ── Scrollable body ───────────────────────────────────────────── */}
-      <div
-        style={{
-          backgroundColor: "var(--canvas)",
-          // Give the page room to scroll clear of the on-screen keyboard.
-          // Without this the scrollable area ends behind the keys and the
-          // caret becomes unreachable partway down the page.
-          paddingBottom: keyboardInset || undefined,
-          // The inset changes as the keyboard animates in; matching it keeps
-          // the page from jumping under the student's hand.
-          transition: "padding-bottom 150ms ease-out",
-          // Proximity, never mandatory: mandatory snapping fights a student
-          // writing across a page boundary.
-          scrollSnapType: "y proximity",
-        }}
-        ref={setScrollRef}
-        className={`flex-1 min-h-0 overflow-auto${annotationMode !== "none" ? " annotating" : ""}`}
-      >
-        {/* Sizer: reserves the *scaled* footprint. A CSS transform paints
+      {/* Thumbnails sit beside the page, not inside it: a panel that
+          scrolled away with the note would be useless the moment you
+          started writing. */}
+      <div className="flex min-h-0 flex-1">
+        {/* Page thumbnails.
+              With a lecture deck imported, page numbers alone are not a way to
+              navigate — you look for the slide, not the number. Each entry
+              shows the page's own slide where there is one, so jumping to the
+              diagram you want to annotate is a glance rather than a hunt. */}
+        {pagesOpen && (
+          <aside
+            aria-label="Pages"
+            className="z-30 w-[132px] shrink-0 overflow-y-auto border-r border-border/60 bg-[var(--surface-elevated)]/95 p-2 backdrop-blur-sm"
+          >
+            <div className="flex flex-col gap-2">
+              {Array.from({ length: pageCount }).map((_, i) => (
+                <button
+                  key={`thumb-${i}`}
+                  type="button"
+                  onClick={() => goToPage(i)}
+                  aria-label={`Go to page ${i + 1}`}
+                  aria-current={i === currentPage}
+                  className={cn(
+                    "group flex flex-col items-center gap-1 rounded-lg p-1 transition-colors",
+                    i === currentPage ? "bg-primary/10" : "hover:bg-white/[0.05]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex aspect-[3/4] w-full items-center justify-center overflow-hidden rounded-md border bg-[var(--paper)]",
+                      i === currentPage
+                        ? "border-primary ring-1 ring-primary/40"
+                        : "border-border/60",
+                    )}
+                  >
+                    {slideUrls[i] ? (
+                      <img
+                        src={slideUrls[i]}
+                        alt=""
+                        aria-hidden
+                        draggable={false}
+                        className="h-full w-full object-contain"
+                      />
+                    ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-[11px] tabular-nums",
+                      i === currentPage ? "font-semibold text-primary" : "text-muted-foreground",
+                    )}
+                  >
+                    {i + 1}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
+        <div
+          style={{
+            backgroundColor: "var(--canvas)",
+            // Give the page room to scroll clear of the on-screen keyboard.
+            // Without this the scrollable area ends behind the keys and the
+            // caret becomes unreachable partway down the page.
+            paddingBottom: keyboardInset || undefined,
+            // The inset changes as the keyboard animates in; matching it keeps
+            // the page from jumping under the student's hand.
+            transition: "padding-bottom 150ms ease-out",
+            // Proximity, never mandatory: mandatory snapping fights a student
+            // writing across a page boundary.
+            scrollSnapType: "y proximity",
+          }}
+          ref={setScrollRef}
+          className={`flex-1 min-h-0 overflow-auto${annotationMode !== "none" ? " annotating" : ""}`}
+        >
+          {/* Sizer: reserves the *scaled* footprint. A CSS transform paints
             outside its layout box without enlarging it, so without this the
             scroll container never grows and the zoomed-in corners of the page
             simply cannot be scrolled to. */}
-        <div ref={sizerRef} style={zoomStyles(zoom, natural).sizer}>
-          <div
-            ref={setPageRef}
-            className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8"
-            style={zoomStyles(zoom, natural).page}
-          >
-            {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
-            <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
-              {SUBJECTS.map((s) => {
-                const active = s.value === subject;
-                return (
-                  <button
-                    key={s.value}
-                    onClick={() => {
-                      setSubject(s.value);
-                      setSubjectLabel(s.label);
-                    }}
-                    className={[
-                      "group flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-all",
-                      active
-                        ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
-                        : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
-                    ].join(" ")}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-                    {s.label}
-                  </button>
-                );
-              })}
+          <div ref={sizerRef} style={zoomStyles(zoom, natural).sizer}>
+            <div
+              ref={setPageRef}
+              className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-6 sm:py-8"
+              style={zoomStyles(zoom, natural).page}
+            >
+              {/* Meta row: subject / notebook / test date — document chrome, sits above the page */}
+              <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
+                {SUBJECTS.map((s) => {
+                  const active = s.value === subject;
+                  return (
+                    <button
+                      key={s.value}
+                      onClick={() => {
+                        setSubject(s.value);
+                        setSubjectLabel(s.label);
+                      }}
+                      className={[
+                        "group flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-all",
+                        active
+                          ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
+                          : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                      ].join(" ")}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+                      {s.label}
+                    </button>
+                  );
+                })}
 
-              {(() => {
-                const nb = notebooks.find((n) => n.id === liveNote.notebookId);
-                const c = nb
-                  ? (NOTEBOOK_COLORS.find((x) => x.value === nb.color) ?? NOTEBOOK_COLORS[0])
-                  : null;
-                return (
-                  <button
-                    onClick={() => setShowMoveSheet(true)}
-                    className={cn(
-                      "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
-                      nb
-                        ? `border-transparent ring-1 ring-inset ${c!.ring} ${c!.bg} ${c!.text}`
-                        : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {nb ? (
-                      <>
-                        <span className="text-sm leading-none">{nb.emoji}</span>
-                        {nb.name}
-                      </>
-                    ) : (
-                      <>
-                        <BookOpen className="h-3.5 w-3.5" />
-                        Add to notebook
-                      </>
-                    )}
-                  </button>
-                );
-              })()}
+                {(() => {
+                  const nb = notebooks.find((n) => n.id === liveNote.notebookId);
+                  const c = nb
+                    ? (NOTEBOOK_COLORS.find((x) => x.value === nb.color) ?? NOTEBOOK_COLORS[0])
+                    : null;
+                  return (
+                    <button
+                      onClick={() => setShowMoveSheet(true)}
+                      className={cn(
+                        "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                        nb
+                          ? `border-transparent ring-1 ring-inset ${c!.ring} ${c!.bg} ${c!.text}`
+                          : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {nb ? (
+                        <>
+                          <span className="text-sm leading-none">{nb.emoji}</span>
+                          {nb.name}
+                        </>
+                      ) : (
+                        <>
+                          <BookOpen className="h-3.5 w-3.5" />
+                          Add to notebook
+                        </>
+                      )}
+                    </button>
+                  );
+                })()}
 
-              <Popover>
-                <PopoverTrigger asChild>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={cn(
+                        "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                        liveNote.testDate
+                          ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
+                          : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <CalendarClock className="h-3.5 w-3.5" />
+                      {liveNote.testDate
+                        ? formatTestCountdown(liveNote.testDate, subjectLabel)
+                        : "Set test date"}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={liveNote.testDate ? new Date(liveNote.testDate) : undefined}
+                      onSelect={(d) => setTestDateMutation.mutate({ id: noteId, date: d ?? null })}
+                      initialFocus
+                      className={cn("p-3 pointer-events-auto")}
+                    />
+                  </PopoverContent>
+                </Popover>
+                {liveNote.testDate ? (
+                  <>
+                    <span className="text-[11.5px] text-muted-foreground">
+                      {new Date(liveNote.testDate).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+                    <button
+                      onClick={() => setTestDateMutation.mutate({ id: noteId, date: null })}
+                      aria-label="Clear test date"
+                      className="flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
+                    >
+                      <XIcon className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : null}
+
+                {/* Add an image — on iOS this offers Camera or Photo Library */}
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []).filter((f) =>
+                      f.type.startsWith("image/"),
+                    );
+                    e.target.value = "";
+                    if (files.length) void insertImageFiles(files);
+                  }}
+                />
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={uploadingImage}
+                  title="Add a photo — snap the whiteboard or pick from your library"
+                  className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {uploadingImage ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  ) : (
+                    <ImagePlus className="h-3.5 w-3.5" />
+                  )}
+                  {uploadingImage ? "Uploading…" : "Image"}
+                </button>
+
+                {/* Add a free-floating text box */}
+                <button
+                  onClick={() => createBox.mutate(undefined)}
+                  className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  title="Add a movable text box"
+                >
+                  <TypeIcon className="h-3.5 w-3.5" />
+                  Text box
+                </button>
+
+                {/* Pages: where you are, how to move, and how to add one. */}
+                <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-[var(--surface)] px-1.5 py-1">
                   <button
+                    type="button"
+                    onClick={() => setPagesOpen((v) => !v)}
+                    aria-label="Page thumbnails"
+                    aria-pressed={pagesOpen}
+                    title="Page thumbnails"
                     className={cn(
-                      "hover-glow flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors",
-                      liveNote.testDate
-                        ? "border-primary/40 bg-primary/15 text-primary shadow-glow"
-                        : "border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground",
+                      "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                      pagesOpen
+                        ? "bg-primary/15 text-primary"
+                        : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
                     )}
                   >
-                    <CalendarClock className="h-3.5 w-3.5" />
-                    {liveNote.testDate
-                      ? formatTestCountdown(liveNote.testDate, subjectLabel)
-                      : "Set test date"}
+                    <PanelLeft className="h-3.5 w-3.5" />
                   </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={liveNote.testDate ? new Date(liveNote.testDate) : undefined}
-                    onSelect={(d) => setTestDateMutation.mutate({ id: noteId, date: d ?? null })}
-                    initialFocus
-                    className={cn("p-3 pointer-events-auto")}
-                  />
-                </PopoverContent>
-              </Popover>
-              {liveNote.testDate ? (
-                <>
-                  <span className="text-[11.5px] text-muted-foreground">
-                    {new Date(liveNote.testDate).toLocaleDateString(undefined, {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
+                  <button
+                    type="button"
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 0}
+                    aria-label="Previous page"
+                    title="Previous page"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-30"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="min-w-[68px] text-center text-[12px] font-medium tabular-nums text-muted-foreground">
+                    Page {currentPage + 1} / {pageCount}
                   </span>
                   <button
-                    onClick={() => setTestDateMutation.mutate({ id: noteId, date: null })}
-                    aria-label="Clear test date"
-                    className="flex h-6 w-6 items-center justify-center rounded-md border border-border/60 bg-[var(--surface)] text-muted-foreground hover:text-foreground"
+                    type="button"
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage >= pageCount - 1}
+                    aria-label="Next page"
+                    title="Next page"
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-30"
                   >
-                    <XIcon className="h-3 w-3" />
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </button>
-                </>
-              ) : null}
+                  <span className="mx-0.5 h-4 w-px bg-border/60" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = pageCount + 1;
+                      setManualPages(next);
+                      // Land on the new sheet once it has been laid out.
+                      requestAnimationFrame(() => goToPage(next - 1));
+                    }}
+                    aria-label="Add page"
+                    title="Add a blank page"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Page
+                  </button>
+                </div>
 
-              {/* Add an image — on iOS this offers Camera or Photo Library */}
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []).filter((f) =>
-                    f.type.startsWith("image/"),
-                  );
-                  e.target.value = "";
-                  if (files.length) void insertImageFiles(files);
-                }}
-              />
-              <button
-                onClick={() => imageInputRef.current?.click()}
-                disabled={uploadingImage}
-                title="Add a photo — snap the whiteboard or pick from your library"
-                className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {uploadingImage ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                ) : (
-                  <ImagePlus className="h-3.5 w-3.5" />
-                )}
-                {uploadingImage ? "Uploading…" : "Image"}
-              </button>
-
-              {/* Add a free-floating text box */}
-              <button
-                onClick={() => createBox.mutate(undefined)}
-                className="hover-glow flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--surface)] px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                title="Add a movable text box"
-              >
-                <TypeIcon className="h-3.5 w-3.5" />
-                Text box
-              </button>
-
-              {/* Pages: where you are, how to move, and how to add one. */}
-              <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-[var(--surface)] px-1.5 py-1">
-                <button
-                  type="button"
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage === 0}
-                  aria-label="Previous page"
-                  title="Previous page"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-30"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
-                <span className="min-w-[68px] text-center text-[12px] font-medium tabular-nums text-muted-foreground">
-                  Page {currentPage + 1} / {pageCount}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage >= pageCount - 1}
-                  aria-label="Next page"
-                  title="Next page"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-30"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-                <span className="mx-0.5 h-4 w-px bg-border/60" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = pageCount + 1;
-                    setManualPages(next);
-                    // Land on the new sheet once it has been laid out.
-                    requestAnimationFrame(() => goToPage(next - 1));
-                  }}
-                  aria-label="Add page"
-                  title="Add a blank page"
-                  className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Page
-                </button>
-              </div>
-
-              {/* Read this page back as text. Only shown when there is ink
+                {/* Read this page back as text. Only shown when there is ink
                   to read: it is the bridge from a handwritten page to study
                   guides, flashcards and search, all of which read the body. */}
-              {ink.strokes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={transcribeInk}
-                  disabled={transcribing}
-                  title="Convert the handwriting on this page into note text"
-                  aria-label="Convert handwriting to text"
-                  className="hover-glow flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
-                >
-                  {transcribing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <PenLine className="h-3.5 w-3.5" />
-                  )}
-                  {transcribing ? "Reading…" : "Handwriting → text"}
-                </button>
-              )}
+                {ink.strokes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={transcribeInk}
+                    disabled={transcribing}
+                    title="Convert the handwriting on this page into note text"
+                    aria-label="Convert handwriting to text"
+                    className="hover-glow flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1.5 text-[12px] font-medium text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
+                  >
+                    {transcribing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <PenLine className="h-3.5 w-3.5" />
+                    )}
+                    {transcribing ? "Reading…" : "Handwriting → text"}
+                  </button>
+                )}
 
-              {/* Paper switcher.
+                {/* Paper switcher.
                   Inline rather than behind a popover: the popover opened and
                   was dismissed within the same tick (aria-expanded flipped
                   true then false with nothing calling preventDefault), so the
                   control was unreachable — and a student looking for lined or
                   grid paper should not have to find a menu to begin with. */}
-              <div
-                role="radiogroup"
-                aria-label="Paper style"
-                className="flex items-center gap-1 rounded-lg border border-border/60 bg-[var(--surface)] px-1.5 py-1"
-              >
-                <span className="px-1 text-[12px] font-medium text-muted-foreground">Paper</span>
-                {PAPER_TEMPLATES.map((p) => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={effectivePaper === p.value}
-                    aria-label={p.label}
-                    title={p.label}
-                    onClick={() => updateMutation.mutate({ id: noteId, patch: { paper: p.value } })}
-                    className={cn(
-                      "flex h-7 w-6 items-center justify-center rounded-[5px] border bg-[var(--paper)] transition-transform",
-                      p.className,
-                      effectivePaper === p.value
-                        ? "border-primary ring-2 ring-inset ring-primary/40"
-                        : "border-border/60 hover:scale-105 hover:border-primary/40",
-                    )}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <RecordingPlayer noteId={noteId} seekRef={seekAudioRef} />
-
-            {/* Generate Study Guide */}
-            <button
-              onClick={() => setLearnOpen(true)}
-              disabled={!hasEnoughToStudy}
-              className="group mb-4 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
-              aria-label="Generate study guide"
-            >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
-                <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
-              </span>
-              <span className="flex-1">
-                <span className="block text-[14.5px] font-semibold text-white">
-                  Learn this note
-                </span>
-                <span className="mt-0.5 block text-[12.5px] text-white/80">
-                  {!hasEnoughToStudy
-                    ? // Ink and imported slides both look empty here, because
-                      // everything downstream reads the typed body. Point at
-                      // the way across rather than telling someone who just
-                      // filled a page to "write a few sentences".
-                      ink.strokes.length > 0
-                      ? "Convert your handwriting to text first, then study it"
-                      : hasSlides
-                        ? "Import these slides as Raw Text or Condensed so Nobi can read them"
-                        : "Write a few sentences first…"
-                    : "Smart notes, flashcards, practice questions — and ask anything."}
-                </span>
-              </span>
-            </button>
-
-            {/* Saved guides */}
-            <section className="mb-6">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
-                    <Sparkles className="h-3.5 w-3.5" />
-                  </span>
-                  <h3 className="text-[14px] font-semibold tracking-tight">Saved Study Guides</h3>
-                  {savedGuides.length > 0 && (
-                    <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
-                      {savedGuides.length}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {savedGuides.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface)]/40 px-4 py-6 text-center text-[13px] text-muted-foreground">
-                  No saved guides yet. Generate one to save it here.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {savedGuides.map((sg) => (
-                    <SavedGuideRow
-                      key={sg.id}
-                      noteId={noteId}
-                      saved={sg}
-                      onOpen={() => setViewGuide(sg.guide)}
+                <div
+                  role="radiogroup"
+                  aria-label="Paper style"
+                  className="flex items-center gap-1 rounded-lg border border-border/60 bg-[var(--surface)] px-1.5 py-1"
+                >
+                  <span className="px-1 text-[12px] font-medium text-muted-foreground">Paper</span>
+                  {PAPER_TEMPLATES.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={effectivePaper === p.value}
+                      aria-label={p.label}
+                      title={p.label}
+                      onClick={() =>
+                        updateMutation.mutate({ id: noteId, patch: { paper: p.value } })
+                      }
+                      className={cn(
+                        "flex h-7 w-6 items-center justify-center rounded-[5px] border bg-[var(--paper)] transition-transform",
+                        p.className,
+                        effectivePaper === p.value
+                          ? "border-primary ring-2 ring-inset ring-primary/40"
+                          : "border-border/60 hover:scale-105 hover:border-primary/40",
+                      )}
                     />
                   ))}
                 </div>
-              )}
-            </section>
+              </div>
 
-            {/* ── The page ─────────────────────────────────────────────────
+              <RecordingPlayer noteId={noteId} seekRef={seekAudioRef} />
+
+              {/* Generate Study Guide */}
+              <button
+                onClick={() => setLearnOpen(true)}
+                disabled={!hasEnoughToStudy}
+                className="group mb-4 flex w-full shrink-0 items-center gap-4 overflow-hidden rounded-xl border border-primary/30 bg-gradient-violet p-4 text-left shadow-glow transition-transform duration-200 hover:scale-[1.005] active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
+                aria-label="Generate study guide"
+              >
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/25 backdrop-blur">
+                  <Sparkles className="h-5 w-5 text-white" strokeWidth={2.3} />
+                </span>
+                <span className="flex-1">
+                  <span className="block text-[14.5px] font-semibold text-white">
+                    Learn this note
+                  </span>
+                  <span className="mt-0.5 block text-[12.5px] text-white/80">
+                    {!hasEnoughToStudy
+                      ? // Ink and imported slides both look empty here, because
+                        // everything downstream reads the typed body. Point at
+                        // the way across rather than telling someone who just
+                        // filled a page to "write a few sentences".
+                        ink.strokes.length > 0
+                        ? "Convert your handwriting to text first, then study it"
+                        : hasSlides
+                          ? "Import these slides as Raw Text or Condensed so Nobi can read them"
+                          : "Write a few sentences first…"
+                      : "Smart notes, flashcards, practice questions — and ask anything."}
+                  </span>
+                </span>
+              </button>
+
+              {/* Saved guides */}
+              <section className="mb-6">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/25">
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </span>
+                    <h3 className="text-[14px] font-semibold tracking-tight">Saved Study Guides</h3>
+                    {savedGuides.length > 0 && (
+                      <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                        {savedGuides.length}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {savedGuides.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-border/60 bg-[var(--surface)]/40 px-4 py-6 text-center text-[13px] text-muted-foreground">
+                    No saved guides yet. Generate one to save it here.
+                  </p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {savedGuides.map((sg) => (
+                      <SavedGuideRow
+                        key={sg.id}
+                        noteId={noteId}
+                        saved={sg}
+                        onOpen={() => setViewGuide(sg.guide)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* ── The page ─────────────────────────────────────────────────
               The note "sheet": a distinct bounded, shadowed card that
               flex-grows to fill the available height so short notes still
               read as a full page (no dead space below). Clicking the blank
               padding focuses the editor at the end. The title now lives in
               the top bar, so this holds only the note body. */}
-            <div
-              ref={cardRef}
-              onMouseDown={(e) => {
-                if (e.target === e.currentTarget) {
-                  e.preventDefault();
-                  editor?.chain().focus("end").run();
-                }
-              }}
-              style={{ minHeight: `${pageCount * PAGE_HEIGHT}px` }}
-              className={cn(
-                "relative cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
-                paperCls,
-              )}
-            >
-              {/* Page boundaries.
+              <div
+                ref={cardRef}
+                onMouseDown={(e) => {
+                  if (e.target === e.currentTarget) {
+                    e.preventDefault();
+                    editor?.chain().focus("end").run();
+                  }
+                }}
+                style={{ minHeight: `${pageCount * PAGE_HEIGHT}px` }}
+                className={cn(
+                  "relative cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
+                  paperCls,
+                )}
+              >
+                {/* Page boundaries.
                   A band of the surrounding canvas colour laid *over* the ink
                   (z above the canvas, pointer-transparent) so a stroke stops
                   at the page edge instead of running through it — one tall
                   sheet reads as a stack of separate ones. */}
-              {Array.from({ length: pageCount - 1 }).map((_, i) => (
-                <div
-                  key={i}
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-0 z-[25] flex items-center gap-3 px-4"
-                  style={{
-                    top: `${(i + 1) * PAGE_HEIGHT - PAGE_GAP / 2}px`,
-                    height: `${PAGE_GAP}px`,
-                    backgroundColor: "var(--canvas)",
-                    boxShadow:
-                      "inset 0 10px 10px -10px rgba(0,0,0,0.45), inset 0 -10px 10px -10px rgba(0,0,0,0.45)",
-                  }}
-                >
-                  <span className="h-0 flex-1" />
-                  <span className="rounded-full border border-border/70 bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Page {i + 2}
-                  </span>
-                  <span className="h-0 flex-1" />
-                </div>
-              ))}
+                {Array.from({ length: pageCount - 1 }).map((_, i) => (
+                  <div
+                    key={i}
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 z-[25] flex items-center gap-3 px-4"
+                    style={{
+                      top: `${(i + 1) * PAGE_HEIGHT - PAGE_GAP / 2}px`,
+                      height: `${PAGE_GAP}px`,
+                      backgroundColor: "var(--canvas)",
+                      boxShadow:
+                        "inset 0 10px 10px -10px rgba(0,0,0,0.45), inset 0 -10px 10px -10px rgba(0,0,0,0.45)",
+                    }}
+                  >
+                    <span className="h-0 flex-1" />
+                    <span className="rounded-full border border-border/70 bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Page {i + 2}
+                    </span>
+                    <span className="h-0 flex-1" />
+                  </div>
+                ))}
 
-              {/* Snap targets at each page top, so scrolling settles on a
+                {/* Snap targets at each page top, so scrolling settles on a
                   page rather than halfway down one. */}
-              {Array.from({ length: pageCount }).map((_, i) => (
-                <div
-                  key={`snap-${i}`}
-                  aria-hidden
-                  ref={(el) => {
-                    pageMarkersRef.current[i] = el;
-                  }}
-                  className="pointer-events-none absolute inset-x-0 h-px"
-                  style={{ top: `${i * PAGE_HEIGHT}px`, scrollSnapAlign: "start" }}
-                />
-              ))}
+                {Array.from({ length: pageCount }).map((_, i) => (
+                  <div
+                    key={`snap-${i}`}
+                    aria-hidden
+                    ref={(el) => {
+                      pageMarkersRef.current[i] = el;
+                    }}
+                    className="pointer-events-none absolute inset-x-0 h-px"
+                    style={{ top: `${i * PAGE_HEIGHT}px`, scrollSnapAlign: "start" }}
+                  />
+                ))}
 
-              {/* Imported slides, one per page, behind everything else.
+                {/* Imported slides, one per page, behind everything else.
                   Sitting under the ink layer is the whole point: the Pencil
                   writes on the slide the way it would on a printed handout. */}
-              {slideUrls.map((src, i) => (
-                <img
-                  key={`slide-${i}`}
-                  src={src}
-                  alt=""
-                  aria-hidden
-                  draggable={false}
-                  className="pointer-events-none absolute inset-x-0 z-0 select-none object-contain"
-                  style={{
-                    top: `${i * PAGE_HEIGHT}px`,
-                    height: `${PAGE_HEIGHT - PAGE_GAP}px`,
-                    width: "100%",
-                  }}
-                />
-              ))}
+                {slideUrls.map((src, i) => (
+                  <img
+                    key={`slide-${i}`}
+                    src={src}
+                    alt=""
+                    aria-hidden
+                    draggable={false}
+                    className="pointer-events-none absolute inset-x-0 z-0 select-none object-contain"
+                    style={{
+                      top: `${i * PAGE_HEIGHT}px`,
+                      height: `${PAGE_HEIGHT - PAGE_GAP}px`,
+                      width: "100%",
+                    }}
+                  />
+                ))}
 
-              <div className={cn("relative z-[1]", hidePlaceholder && "ink-active")}>
-                <EditorContent editor={editor} />
-              </div>
-              {/* Free-floating text boxes layer (GoodNotes-style) */}
-              {/* Boxes take pointers only when a nib is not selected, so a
+                <div className={cn("relative z-[1]", hidePlaceholder && "ink-active")}>
+                  <EditorContent editor={editor} />
+                </div>
+                {/* Free-floating text boxes layer (GoodNotes-style) */}
+                {/* Boxes take pointers only when a nib is not selected, so a
                   stroke drawn over a box lands on the page and a drag with
                   the cursor reaches the box. */}
-              <FreeformLayer
-                noteId={noteId}
-                interactive={inkMode === "off" || inkMode === "select"}
-              />
-              {/* Handwriting canvas — pointer-transparent while inkMode is off */}
-              <InkCanvas
-                noteId={noteId}
-                mode={inkMode}
-                color={inkColor}
-                size={inkSize}
-                snapshotRef={inkSnapshotRef}
-                eraserSize={eraserSize}
-                nowMs={() => recordingClockRef.current?.() ?? null}
-                onTapStroke={(stroke) => {
-                  // Only ink written while recording has a moment to jump to.
-                  if (stroke.tMs == null) return;
-                  seekAudioRef.current?.(stroke.tMs);
-                }}
-                strokes={ink.strokes}
-                addStroke={ink.addStroke}
-                eraseStrokes={ink.eraseStrokes}
-                onGesture={handleGesture}
-                onGestureEnd={handleGestureEnd}
-                zoom={zoom}
-                moveStrokes={ink.moveStrokes}
-                onTapEmpty={placeCaretAt}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Modals ────────────────────────────────────────────────────── */}
-      <LearnSheet
-        open={learnOpen}
-        onClose={() => setLearnOpen(false)}
-        note={liveNote}
-        title={title}
-        body={body}
-        onGenerate={() => setGuideOpen(true)}
-      />
-
-      {guideOpen && (
-        <StudyGuideModal
-          open={guideOpen}
-          onClose={() => setGuideOpen(false)}
-          note={{ title, body, subjectLabel }}
-          noteId={noteId}
-        />
-      )}
-
-      {viewGuide && (
-        <StudyGuideModal
-          open={!!viewGuide}
-          onClose={() => setViewGuide(null)}
-          note={{ title, body, subjectLabel }}
-          initialGuide={viewGuide}
-        />
-      )}
-
-      {/* ── Move to notebook sheet ───────────────────────────────────── */}
-      {showMoveSheet && (
-        <MoveToNotebookSheet
-          currentNotebookId={liveNote.notebookId}
-          notebooks={notebooks}
-          onMove={(notebookId) => {
-            updateMutation.mutate({ id: noteId, patch: { notebookId } });
-          }}
-          onClose={() => setShowMoveSheet(false)}
-        />
-      )}
-
-      {/* ── PDF Import Choice Modal ───────────────────────────────────── */}
-      {pdfPhase === "awaiting-choice" && pendingPdf && (
-        <div
-          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
-          onClick={dismissChoice}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 pb-7 shadow-glow-lg sm:rounded-2xl animate-float-in"
-          >
-            {/* Header */}
-            <div className="mb-4 flex items-start gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/30">
-                <FileUp className="h-4.5 w-4.5" />
-              </span>
-              <div className="min-w-0">
-                <h3 className="text-[15px] font-semibold tracking-tight">
-                  How do you want to import?
-                </h3>
-                <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
-                  {pendingPdf.title}
-                  {pendingPdf.totalPages > 0
-                    ? ` · ${pendingPdf.totalPages} page${pendingPdf.totalPages !== 1 ? "s" : ""}`
-                    : ""}
-                  {!pendingPdf.hasText ? " · image-only PDF" : ""}
-                </p>
+                <FreeformLayer
+                  noteId={noteId}
+                  interactive={inkMode === "off" || inkMode === "select"}
+                />
+                {/* Handwriting canvas — pointer-transparent while inkMode is off */}
+                <InkCanvas
+                  noteId={noteId}
+                  mode={inkMode}
+                  color={inkColor}
+                  size={inkSize}
+                  snapshotRef={inkSnapshotRef}
+                  eraserSize={eraserSize}
+                  nowMs={() => recordingClockRef.current?.() ?? null}
+                  onTapStroke={(stroke) => {
+                    // Only ink written while recording has a moment to jump to.
+                    if (stroke.tMs == null) return;
+                    seekAudioRef.current?.(stroke.tMs);
+                  }}
+                  strokes={ink.strokes}
+                  addStroke={ink.addStroke}
+                  eraseStrokes={ink.eraseStrokes}
+                  onGesture={handleGesture}
+                  onGestureEnd={handleGestureEnd}
+                  zoom={zoom}
+                  moveStrokes={ink.moveStrokes}
+                  onTapEmpty={placeCaretAt}
+                />
               </div>
             </div>
-
-            {/* Options */}
-            <div className="space-y-2">
-              {/* Raw Text */}
-              <ImportOption
-                icon={<FileText className="h-4 w-4" />}
-                label="Raw Text"
-                description="Insert the full extracted text as-is"
-                disabled={!pendingPdf.hasText}
-                disabledReason="No text found in this PDF"
-                onClick={handleImportRaw}
-              />
-
-              {/* Condensed */}
-              <ImportOption
-                icon={<Sparkles className="h-4 w-4" />}
-                label="Condensed"
-                badge="AI"
-                description="Summarise to key points using Claude"
-                disabled={!pendingPdf.hasText}
-                disabledReason="No text found in this PDF"
-                onClick={() => void handleImportCondense()}
-                highlight
-              />
-
-              {/* Slides */}
-              <ImportOption
-                icon={<GalleryHorizontal className="h-4 w-4" />}
-                label="Slides View"
-                description={`Render each page as an image${pendingPdf.totalPages > MAX_SLIDE_PAGES ? ` (first ${MAX_SLIDE_PAGES} of ${pendingPdf.totalPages})` : ""}`}
-                onClick={() => void handleImportSlides()}
-              />
-            </div>
-
-            <button
-              onClick={dismissChoice}
-              className="mt-4 w-full rounded-lg border border-border/60 bg-[var(--surface)] py-2 text-[13px] font-medium text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
           </div>
         </div>
-      )}
 
-      {/* ── Loading overlay for condensing / rendering ────────────────── */}
-      {(pdfPhase === "condensing" || pdfPhase === "rendering") && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-[var(--surface-elevated)] px-8 py-6 shadow-glow-lg">
-            <Loader2 className="h-7 w-7 animate-spin text-primary" />
-            <p className="text-[13.5px] font-medium text-foreground">
-              {pdfPhase === "condensing" ? "Condensing with AI…" : "Rendering slides…"}
-            </p>
-            <p className="text-[12px] text-muted-foreground">
-              {pdfPhase === "condensing"
-                ? "Claude is summarising your document"
-                : "Converting PDF pages to images"}
-            </p>
-          </div>
-        </div>
-      )}
+        {/* ── Modals ────────────────────────────────────────────────────── */}
+        <LearnSheet
+          open={learnOpen}
+          onClose={() => setLearnOpen(false)}
+          note={liveNote}
+          title={title}
+          body={body}
+          onGenerate={() => setGuideOpen(true)}
+        />
 
-      {/* ── Delete note confirm ───────────────────────────────────────── */}
-      {confirmDelete && (
-        <div
-          className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
-          onClick={() => setConfirmDelete(false)}
-        >
+        {guideOpen && (
+          <StudyGuideModal
+            open={guideOpen}
+            onClose={() => setGuideOpen(false)}
+            note={{ title, body, subjectLabel }}
+            noteId={noteId}
+          />
+        )}
+
+        {viewGuide && (
+          <StudyGuideModal
+            open={!!viewGuide}
+            onClose={() => setViewGuide(null)}
+            note={{ title, body, subjectLabel }}
+            initialGuide={viewGuide}
+          />
+        )}
+
+        {/* ── Move to notebook sheet ───────────────────────────────────── */}
+        {showMoveSheet && (
+          <MoveToNotebookSheet
+            currentNotebookId={liveNote.notebookId}
+            notebooks={notebooks}
+            onMove={(notebookId) => {
+              updateMutation.mutate({ id: noteId, patch: { notebookId } });
+            }}
+            onClose={() => setShowMoveSheet(false)}
+          />
+        )}
+
+        {/* ── PDF Import Choice Modal ───────────────────────────────────── */}
+        {pdfPhase === "awaiting-choice" && pendingPdf && (
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 shadow-glow-lg sm:rounded-2xl animate-float-in"
+            className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+            onClick={dismissChoice}
           >
-            <h3 className="text-[16px] font-semibold tracking-tight">Delete this note?</h3>
-            <p className="mt-1 text-[13px] text-muted-foreground">
-              This can&apos;t be undone. Your note will be permanently removed.
-            </p>
-            <div className="mt-5 flex items-center justify-end gap-2">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 pb-7 shadow-glow-lg sm:rounded-2xl animate-float-in"
+            >
+              {/* Header */}
+              <div className="mb-4 flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/30">
+                  <FileUp className="h-4.5 w-4.5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-[15px] font-semibold tracking-tight">
+                    How do you want to import?
+                  </h3>
+                  <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                    {pendingPdf.title}
+                    {pendingPdf.totalPages > 0
+                      ? ` · ${pendingPdf.totalPages} page${pendingPdf.totalPages !== 1 ? "s" : ""}`
+                      : ""}
+                    {!pendingPdf.hasText ? " · image-only PDF" : ""}
+                  </p>
+                </div>
+              </div>
+
+              {/* Options */}
+              <div className="space-y-2">
+                {/* Raw Text */}
+                <ImportOption
+                  icon={<FileText className="h-4 w-4" />}
+                  label="Raw Text"
+                  description="Insert the full extracted text as-is"
+                  disabled={!pendingPdf.hasText}
+                  disabledReason="No text found in this PDF"
+                  onClick={handleImportRaw}
+                />
+
+                {/* Condensed */}
+                <ImportOption
+                  icon={<Sparkles className="h-4 w-4" />}
+                  label="Condensed"
+                  badge="AI"
+                  description="Summarise to key points using Claude"
+                  disabled={!pendingPdf.hasText}
+                  disabledReason="No text found in this PDF"
+                  onClick={() => void handleImportCondense()}
+                  highlight
+                />
+
+                {/* Slides */}
+                <ImportOption
+                  icon={<GalleryHorizontal className="h-4 w-4" />}
+                  label="Slides View"
+                  description={`Render each page as an image${pendingPdf.totalPages > MAX_SLIDE_PAGES ? ` (first ${MAX_SLIDE_PAGES} of ${pendingPdf.totalPages})` : ""}`}
+                  onClick={() => void handleImportSlides()}
+                />
+              </div>
+
               <button
-                onClick={() => setConfirmDelete(false)}
-                className="rounded-md border border-border/60 bg-[var(--surface)] px-3.5 py-2 text-[13px] font-medium hover:bg-white/[0.04]"
+                onClick={dismissChoice}
+                className="mt-4 w-full rounded-lg border border-border/60 bg-[var(--surface)] py-2 text-[13px] font-medium text-muted-foreground hover:text-foreground"
               >
                 Cancel
               </button>
-              <button
-                onClick={handleDelete}
-                className="rounded-md bg-destructive px-3.5 py-2 text-[13px] font-medium text-destructive-foreground hover:opacity-90"
-              >
-                Delete
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* ── Loading overlay for condensing / rendering ────────────────── */}
+        {(pdfPhase === "condensing" || pdfPhase === "rendering") && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-[var(--surface-elevated)] px-8 py-6 shadow-glow-lg">
+              <Loader2 className="h-7 w-7 animate-spin text-primary" />
+              <p className="text-[13.5px] font-medium text-foreground">
+                {pdfPhase === "condensing" ? "Condensing with AI…" : "Rendering slides…"}
+              </p>
+              <p className="text-[12px] text-muted-foreground">
+                {pdfPhase === "condensing"
+                  ? "Claude is summarising your document"
+                  : "Converting PDF pages to images"}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Delete note confirm ───────────────────────────────────────── */}
+        {confirmDelete && (
+          <div
+            className="fixed inset-0 z-[110] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+            onClick={() => setConfirmDelete(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-t-2xl border border-border/60 bg-[var(--surface-elevated)] p-5 shadow-glow-lg sm:rounded-2xl animate-float-in"
+            >
+              <h3 className="text-[16px] font-semibold tracking-tight">Delete this note?</h3>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                This can&apos;t be undone. Your note will be permanently removed.
+              </p>
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="rounded-md border border-border/60 bg-[var(--surface)] px-3.5 py-2 text-[13px] font-medium hover:bg-white/[0.04]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="rounded-md bg-destructive px-3.5 py-2 text-[13px] font-medium text-destructive-foreground hover:opacity-90"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>,
     document.body,
   );
