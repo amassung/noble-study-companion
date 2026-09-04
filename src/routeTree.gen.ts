@@ -18,6 +18,7 @@ import { Route as ProgressRouteImport } from './routes/progress'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as NotesRouteImport } from './routes/notes'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as InkLabRouteImport } from './routes/ink-lab'
 import { Route as IndexRouteImport } from './routes/index'
 
 const StudyRoute = StudyRouteImport.update({
@@ -65,6 +66,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InkLabRoute = InkLabRouteImport.update({
+  id: '/ink-lab',
+  path: '/ink-lab',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -73,6 +79,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/ink-lab': typeof InkLabRoute
   '/login': typeof LoginRoute
   '/notes': typeof NotesRoute
   '/profile': typeof ProfileRoute
@@ -85,6 +92,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/ink-lab': typeof InkLabRoute
   '/login': typeof LoginRoute
   '/notes': typeof NotesRoute
   '/profile': typeof ProfileRoute
@@ -98,6 +106,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/ink-lab': typeof InkLabRoute
   '/login': typeof LoginRoute
   '/notes': typeof NotesRoute
   '/profile': typeof ProfileRoute
@@ -112,6 +121,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/ink-lab'
     | '/login'
     | '/notes'
     | '/profile'
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/ink-lab'
     | '/login'
     | '/notes'
     | '/profile'
@@ -136,6 +147,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/ink-lab'
     | '/login'
     | '/notes'
     | '/profile'
@@ -149,6 +161,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  InkLabRoute: typeof InkLabRoute
   LoginRoute: typeof LoginRoute
   NotesRoute: typeof NotesRoute
   ProfileRoute: typeof ProfileRoute
@@ -225,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/ink-lab': {
+      id: '/ink-lab'
+      path: '/ink-lab'
+      fullPath: '/ink-lab'
+      preLoaderRoute: typeof InkLabRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -237,6 +257,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  InkLabRoute: InkLabRoute,
   LoginRoute: LoginRoute,
   NotesRoute: NotesRoute,
   ProfileRoute: ProfileRoute,

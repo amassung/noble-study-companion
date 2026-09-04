@@ -310,19 +310,35 @@ export function InkCanvas({
     // A stroke's outline only changes when its points, width, nib or the page
     // width change. Rebuilding it for every stroke on every repaint is what
     // made a full repaint cost tens of milliseconds on a busy page.
+    //
+    // The key is the points array itself, which is safe for committed strokes
+    // because those arrays are never touched again. The stroke being drawn is
+    // the exception: it is one array that grows by push() on every sample, so
+    // its identity stays the same while its contents change. Caching on
+    // identity alone returned the path built from the first point for the
+    // whole stroke — the nib left a dot, and since finish() hands that same
+    // array to addStroke, the committed stroke inherited the stale entry and
+    // stayed a dot. Length is what distinguishes one sample from fifty, and
+    // appending is the only way these arrays ever change.
     const pathCache = new WeakMap<
       Point[],
-      { w: number; size: number; thinning: number; path: Path2D | null }
+      { w: number; size: number; thinning: number; len: number; path: Path2D | null }
     >();
     const pathFor = (pts: Point[], w: number, strokeSize: number, thinning: number) => {
       const hit = pathCache.get(pts);
-      if (hit && hit.w === w && hit.size === strokeSize && hit.thinning === thinning) {
+      if (
+        hit &&
+        hit.w === w &&
+        hit.size === strokeSize &&
+        hit.thinning === thinning &&
+        hit.len === pts.length
+      ) {
         return hit.path;
       }
       const abs: Point[] = pts.map(([x, y, pr]) => [x * w, y, pr]);
       const d = strokeToPath(abs, strokeSize, thinning);
       const path = d ? new Path2D(d) : null;
-      pathCache.set(pts, { w, size: strokeSize, thinning, path });
+      pathCache.set(pts, { w, size: strokeSize, thinning, len: pts.length, path });
       return path;
     };
 

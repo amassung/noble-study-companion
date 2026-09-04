@@ -1,4 +1,7 @@
-export const AUTH_PUBLIC_PATHS = ["/login", "/signup"] as const;
+// /ink-lab is a dev-only bench for the handwriting engine (see the route).
+// The route itself refuses to render outside dev, so listing it here exposes
+// nothing in production.
+export const AUTH_PUBLIC_PATHS = ["/login", "/signup", "/ink-lab"] as const;
 
 export type AuthPublicPath = (typeof AUTH_PUBLIC_PATHS)[number];
 
