@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool, StrokeGeometry } from "@/lib/ink/ink-api";
 import { inkResolution } from "@/lib/ink/resolution";
@@ -186,7 +186,6 @@ export function InkCanvas({
   // Which pointer owns the stroke in flight. A stroke belongs to one pointer,
   // and only that pointer is allowed to end it.
   const strokePointerRef = useRef<number | null>(null);
-  const [diagTick, setDiagTick] = useState(0);
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
   const baseRef = useRef<HTMLCanvasElement>(null);
@@ -807,14 +806,6 @@ export function InkCanvas({
       strokePointerRef.current = null;
       commitCarve();
       const pts = activeRef.current;
-      {
-        const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag;
-        if (d) {
-          d.lastPts = pts.length;
-          d.commits = (d.commits ?? 0) + (pts.length > 1 ? 1 : 0);
-          d.dropped = (d.dropped ?? 0) + (pts.length > 1 ? 0 : 1);
-        }
-      }
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
       if (pts.length > 1 && isDrawTool(m)) {
         add({ points: pts, color: c, size: s, tool: m, tMs: propsRef.current.nowMs?.() ?? null });
@@ -1115,20 +1106,6 @@ export function InkCanvas({
         return;
       }
 
-      // Field diagnostic: say *why* a move was discarded. Strokes are one
-      // point long on device while 1200 samples arrive, so exactly one of
-      // these branches is eating them and guessing which has cost two
-      // deploys already.
-      {
-        const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag;
-        if (d) {
-          if (!drawingRef.current) d.mNoDraw = (d.mNoDraw ?? 0) + 1;
-          else if (isPalm(e)) d.mPalm = (d.mPalm ?? 0) + 1;
-          else d.mOk = (d.mOk ?? 0) + 1;
-          d.pts = activeRef.current.length;
-        }
-      }
-
       if (!drawingRef.current || isPalm(e)) return;
       e.preventDefault();
 
@@ -1250,36 +1227,6 @@ export function InkCanvas({
     // can reproduce in, so count what actually arrives rather than reason
     // about it. "down 12 / move 3 / up 0 / cancel 12" and "down 12 / move 400"
     // are opposite bugs, and the numbers say which without another guess.
-    {
-      const w = window as unknown as { __inkDiag?: Record<string, number> };
-      if (w.__inkDiag) w.__inkDiag.mounts = (w.__inkDiag.mounts ?? 0) + 1;
-    }
-    const diag = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag ?? {
-      down: 0,
-      move: 0,
-      moveSamples: 0,
-      up: 0,
-      cancel: 0,
-      pen: 0,
-      touch: 0,
-    };
-    (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag = diag;
-    const count = (e: PointerEvent, key: string) => {
-      diag[key] = (diag[key] ?? 0) + 1;
-      if (e.pointerType === "pen") diag.pen += 1;
-      if (e.pointerType === "touch") diag.touch += 1;
-      if (key === "move") diag.moveSamples += e.getCoalescedEvents?.().length || 1;
-      setDiagTick((n) => n + 1);
-    };
-    const onDownDiag = (e: PointerEvent) => count(e, "down");
-    const onMoveDiag = (e: PointerEvent) => count(e, "move");
-    const onUpDiag = (e: PointerEvent) => count(e, "up");
-    const onCancelDiag = (e: PointerEvent) => count(e, "cancel");
-    host.addEventListener("pointerdown", onDownDiag, opts);
-    host.addEventListener("pointermove", onMoveDiag, opts);
-    host.addEventListener("pointerup", onUpDiag, opts);
-    host.addEventListener("pointercancel", onCancelDiag, opts);
-
     host.addEventListener("pointerdown", onDown, opts);
     host.addEventListener("pointermove", onMove, opts);
     host.addEventListener("pointerup", onUp, opts);
@@ -1312,10 +1259,6 @@ export function InkCanvas({
     ro.observe(host);
 
     return () => {
-      host.removeEventListener("pointerdown", onDownDiag, opts);
-      host.removeEventListener("pointermove", onMoveDiag, opts);
-      host.removeEventListener("pointerup", onUpDiag, opts);
-      host.removeEventListener("pointercancel", onCancelDiag, opts);
       host.removeEventListener("pointerdown", onDown, opts);
       host.removeEventListener("pointermove", onMove, opts);
       host.removeEventListener("pointerup", onUp, opts);
@@ -1362,19 +1305,6 @@ export function InkCanvas({
     >
       <canvas ref={baseRef} className="absolute inset-0 h-full w-full" />
       <canvas ref={liveRef} className="absolute inset-0 h-full w-full" />
-      {/* Temporary: remove once the on-device stroke loss is understood. */}
-      {mode !== "off" && (
-        <div
-          data-ink-diag
-          className="pointer-events-none absolute left-1 top-1 z-50 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] leading-tight text-white"
-        >
-          {(() => {
-            const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag ?? {};
-            void diagTick;
-            return `dn${d.down ?? 0} ok${d.mOk ?? 0} last${d.lastPts ?? 0} commit${d.commits ?? 0} drop${d.dropped ?? 0} mnt${d.mounts ?? 0}`;
-          })()}
-        </div>
-      )}
     </div>
   );
 }
