@@ -807,6 +807,14 @@ export function InkCanvas({
       strokePointerRef.current = null;
       commitCarve();
       const pts = activeRef.current;
+      {
+        const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag;
+        if (d) {
+          d.lastPts = pts.length;
+          d.commits = (d.commits ?? 0) + (pts.length > 1 ? 1 : 0);
+          d.dropped = (d.dropped ?? 0) + (pts.length > 1 ? 0 : 1);
+        }
+      }
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
       if (pts.length > 1 && isDrawTool(m)) {
         add({ points: pts, color: c, size: s, tool: m, tMs: propsRef.current.nowMs?.() ?? null });
@@ -1242,6 +1250,10 @@ export function InkCanvas({
     // can reproduce in, so count what actually arrives rather than reason
     // about it. "down 12 / move 3 / up 0 / cancel 12" and "down 12 / move 400"
     // are opposite bugs, and the numbers say which without another guess.
+    {
+      const w = window as unknown as { __inkDiag?: Record<string, number> };
+      if (w.__inkDiag) w.__inkDiag.mounts = (w.__inkDiag.mounts ?? 0) + 1;
+    }
     const diag = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag ?? {
       down: 0,
       move: 0,
@@ -1359,7 +1371,7 @@ export function InkCanvas({
           {(() => {
             const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag ?? {};
             void diagTick;
-            return `dn${d.down ?? 0} mv${d.move ?? 0} ok${d.mOk ?? 0} noDraw${d.mNoDraw ?? 0} palm${d.mPalm ?? 0} pts${d.pts ?? 0}`;
+            return `dn${d.down ?? 0} ok${d.mOk ?? 0} last${d.lastPts ?? 0} commit${d.commits ?? 0} drop${d.dropped ?? 0} mnt${d.mounts ?? 0}`;
           })()}
         </div>
       )}
