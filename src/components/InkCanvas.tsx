@@ -183,6 +183,9 @@ export function InkCanvas({
   // True while the stroke in flight is being drawn with a stylus. Touches
   // that arrive during one are the hand resting on the glass, not a gesture.
   const penStrokeRef = useRef(false);
+  // Which pointer owns the stroke in flight. A stroke belongs to one pointer,
+  // and only that pointer is allowed to end it.
+  const strokePointerRef = useRef<number | null>(null);
   const [diagTick, setDiagTick] = useState(0);
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
@@ -801,6 +804,7 @@ export function InkCanvas({
       if (!drawingRef.current) return;
       drawingRef.current = false;
       penStrokeRef.current = false;
+      strokePointerRef.current = null;
       commitCarve();
       const pts = activeRef.current;
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
@@ -902,6 +906,7 @@ export function InkCanvas({
           drawingRef.current = false;
           activeRef.current = [];
           penStrokeRef.current = false;
+          strokePointerRef.current = null;
           scheduleLive();
           syncGesture();
           return;
@@ -1016,6 +1021,7 @@ export function InkCanvas({
       }
       drawingRef.current = true;
       penStrokeRef.current = e.pointerType === "pen";
+      strokePointerRef.current = e.pointerId;
       const pt = pointFrom(e);
       if (propsRef.current.mode === "eraser") {
         eraserTipRef.current = { x: pt[0] * host.offsetWidth, y: pt[1] };
@@ -1099,6 +1105,20 @@ export function InkCanvas({
           }
         }
         return;
+      }
+
+      // Field diagnostic: say *why* a move was discarded. Strokes are one
+      // point long on device while 1200 samples arrive, so exactly one of
+      // these branches is eating them and guessing which has cost two
+      // deploys already.
+      {
+        const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag;
+        if (d) {
+          if (!drawingRef.current) d.mNoDraw = (d.mNoDraw ?? 0) + 1;
+          else if (isPalm(e)) d.mPalm = (d.mPalm ?? 0) + 1;
+          else d.mOk = (d.mOk ?? 0) + 1;
+          d.pts = activeRef.current.length;
+        }
       }
 
       if (!drawingRef.current || isPalm(e)) return;
@@ -1191,6 +1211,15 @@ export function InkCanvas({
         touchesRef.current.delete(e.pointerId);
         syncGesture();
         if (wasGesture && touchesRef.current.size < 2) propsRef.current.onGestureEnd?.();
+      }
+      // A stroke ends when the pointer drawing it lifts — not when any
+      // pointer does. A hand resting on the page makes and breaks contact
+      // constantly, and every one of those touch pointerups was calling
+      // finish() on the stroke the *pen* was in the middle of, committing it
+      // a sample or two in. That is the trail of dots: not a cancel, not a
+      // lost event, but the stroke being ended by the wrong finger.
+      if (strokePointerRef.current !== null && e.pointerId !== strokePointerRef.current) {
+        return;
       }
       try {
         host.releasePointerCapture(e.pointerId);
@@ -1330,7 +1359,7 @@ export function InkCanvas({
           {(() => {
             const d = (window as unknown as { __inkDiag?: Record<string, number> }).__inkDiag ?? {};
             void diagTick;
-            return `dn${d.down ?? 0} mv${d.move ?? 0}/${d.moveSamples ?? 0} up${d.up ?? 0} cx${d.cancel ?? 0} pen${d.pen ?? 0} tch${d.touch ?? 0}`;
+            return `dn${d.down ?? 0} mv${d.move ?? 0} ok${d.mOk ?? 0} noDraw${d.mNoDraw ?? 0} palm${d.mPalm ?? 0} pts${d.pts ?? 0}`;
           })()}
         </div>
       )}
