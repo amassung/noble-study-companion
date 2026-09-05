@@ -8,6 +8,7 @@ import {
   deleteStrokes,
   fetchInk,
   updateStrokeGeometry,
+  updateStrokeColor,
 } from "./ink-api";
 
 function inkKey(noteId: string) {
@@ -86,6 +87,29 @@ export function useDeleteStrokesMutation(noteId: string) {
     onError: (_e, _v, ctx) => {
       qc.setQueryData<InkStroke[]>(inkKey(noteId), ctx?.prev ?? []);
       toast.error("Couldn't erase — check your connection.");
+    },
+  });
+}
+
+export function useRecolorStrokesMutation(noteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, color }: { ids: string[]; color: string }) =>
+      updateStrokeColor(
+        ids.filter((id) => !isTempStrokeId(id)),
+        color,
+      ),
+    onMutate: async ({ ids, color }) => {
+      await qc.cancelQueries({ queryKey: inkKey(noteId) });
+      const prev = qc.getQueryData<InkStroke[]>(inkKey(noteId));
+      qc.setQueryData<InkStroke[]>(inkKey(noteId), (cur) =>
+        (cur ?? []).map((s) => (ids.includes(s.id) ? { ...s, color } : s)),
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      qc.setQueryData<InkStroke[]>(inkKey(noteId), ctx?.prev ?? []);
+      toast.error("Couldn't change that colour — check your connection.");
     },
   });
 }

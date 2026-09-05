@@ -2214,6 +2214,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   onGestureEnd={handleGestureEnd}
                   zoom={zoom}
                   moveStrokes={ink.moveStrokes}
+                  restyleStrokes={ink.restyleStrokes}
                   onTapEmpty={placeCaretAt}
                 />
               </div>

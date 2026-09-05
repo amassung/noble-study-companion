@@ -164,6 +164,29 @@ export async function updateStrokeGeometry(updates: StrokeGeometry[]): Promise<v
 }
 
 /**
+ * Recolour existing strokes.
+ *
+ * Separate from updateStrokeGeometry because the two are different edits with
+ * different failure messages: one is "your move didn't save", the other is
+ * "your colour change didn't save", and a student should be told which.
+ */
+export async function updateStrokeColor(ids: string[], color: string): Promise<void> {
+  if (!ids.length) return;
+  const supabase = getSupabaseClient();
+  const userId = await requireUserId();
+  const { data, error } = await supabase
+    .from("note_ink")
+    .update({ color })
+    .in("id", ids)
+    .eq("user_id", userId)
+    .select("id");
+  if (error) throw error;
+  // Zero rows back means RLS rejected it rather than the rows being missing;
+  // surface that instead of pretending the recolour was saved.
+  if (!data || data.length === 0) throw new Error("Stroke recolour affected no rows");
+}
+
+/**
  * Attach strokes written during a recording to that recording.
  *
  * Strokes are stamped with an offset as they are drawn, but the recording has

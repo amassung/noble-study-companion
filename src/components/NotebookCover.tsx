@@ -95,7 +95,7 @@ export function NotebookCover({
           className={editMode ? undefined : "group-hover:-translate-y-1"}
         />
 
-        <h3 className="mt-2.5 line-clamp-2 text-[13.5px] font-semibold leading-snug tracking-tight text-foreground">
+        <h3 className="mt-2.5 line-clamp-2 hyphens-auto break-words text-[13.5px] font-semibold leading-snug tracking-tight text-foreground">
           {notebook.name || <span className="text-muted-foreground">Untitled notebook</span>}
         </h3>
         <span className="mt-0.5 text-[11.5px] text-muted-foreground">
@@ -133,7 +133,7 @@ export function VirtualNotebookCover({
         className="group flex w-full cursor-pointer flex-col text-left"
       >
         <Cover emoji={emoji} bar={bar} className="group-hover:-translate-y-1" />
-        <h3 className="mt-2.5 line-clamp-2 text-[13.5px] font-semibold leading-snug tracking-tight text-foreground">
+        <h3 className="mt-2.5 line-clamp-2 hyphens-auto break-words text-[13.5px] font-semibold leading-snug tracking-tight text-foreground">
           {label}
         </h3>
         <span className="mt-0.5 text-[11.5px] text-muted-foreground">

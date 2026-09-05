@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Trash2, Copy } from "lucide-react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool, StrokeGeometry } from "@/lib/ink/ink-api";
 import { inkResolution } from "@/lib/ink/resolution";
@@ -7,6 +8,10 @@ export type InkMode = "off" | "select" | "pen" | "pencil" | "fineliner" | "highl
 
 /** A selection rectangle in host pixels (x absolute, y from the page top). */
 type Box = { x: number; y: number; w: number; h: number };
+
+// Recolour options on a selection. A short row, not the full palette: this
+// bar sits over the page and has to stay out of the way of the writing.
+const SELECTION_COLORS = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"] as const;
 
 // Corner grab size, in px. Generous because a fingertip is not a mouse.
 const HANDLE = 11;
@@ -122,6 +127,7 @@ export function InkCanvas({
   onGesture,
   onGestureEnd,
   moveStrokes,
+  restyleStrokes,
   onTapEmpty,
   onTapStroke,
   zoom = 1,
@@ -146,6 +152,8 @@ export function InkCanvas({
   onGestureEnd?: () => void;
   /** Commit a move/resize of existing strokes. */
   moveStrokes?: (updates: StrokeGeometry[]) => void;
+  /** Recolour existing strokes — the selection's colour swatches. */
+  restyleStrokes?: (ids: string[], patch: { color: string }) => void;
   /** A tap on blank page in select mode — the caller puts the caret there. */
   onTapEmpty?: (clientX: number, clientY: number) => void;
   /**
@@ -186,6 +194,42 @@ export function InkCanvas({
   // Which pointer owns the stroke in flight. A stroke belongs to one pointer,
   // and only that pointer is allowed to end it.
   const strokePointerRef = useRef<number | null>(null);
+  // The selection lives in a ref so the pointer handlers can read it without
+  // re-subscribing. The action bar is DOM, though, and DOM needs React to
+  // know — so every write to the ref is mirrored here.
+  const [selection, setSelection] = useState<{ ids: string[]; box: Box } | null>(null);
+
+  // The action bar lives in the render tree while the handlers live inside a
+  // mount-once effect, so the two reach each other through refs rather than
+  // by re-binding every listener whenever a prop identity changes.
+  const eraseStrokesRef = useRef(eraseStrokes);
+  eraseStrokesRef.current = eraseStrokes;
+  const addStrokeRef = useRef(addStroke);
+  addStrokeRef.current = addStroke;
+  const strokesRef = useRef(strokes);
+  strokesRef.current = strokes;
+
+  const clearSelection = () => {
+    selectionRef.current = null;
+    setSelection(null);
+    repaintRef.current?.();
+  };
+
+  /** Copy the selected strokes, offset so the copy is visibly its own. */
+  const duplicateSelection = (ids: string[]) => {
+    const w = hostRef.current?.offsetWidth || 1;
+    const OFFSET = 18; // px, in page space
+    for (const st of strokesRef.current) {
+      if (!ids.includes(st.id)) continue;
+      addStrokeRef.current({
+        points: st.points.map(([x, y, pr]) => [x + OFFSET / w, y + OFFSET, pr]),
+        color: st.color,
+        size: st.size,
+        tool: st.tool,
+      });
+    }
+    clearSelection();
+  };
   const hostRef = useRef<HTMLDivElement>(null);
   // Committed strokes; repainted only when `strokes` changes.
   const baseRef = useRef<HTMLCanvasElement>(null);
@@ -378,6 +422,12 @@ export function InkCanvas({
         ctx.fill(p2d);
       }
       ctx.restore();
+    };
+
+    /** Set the selection, keeping the ref and the React mirror together. */
+    const setSel = (next: { ids: string[]; box: Box } | null) => {
+      selectionRef.current = next;
+      setSelection(next);
     };
 
     const paintBase = () => {
@@ -658,7 +708,7 @@ export function InkCanvas({
         const present = new Set(propsRef.current.strokes.map((s) => s.id));
         const ids = sel.ids.filter((id) => present.has(id));
         const box = ids.length ? boundsOf(ids, host.offsetWidth || 1) : null;
-        selectionRef.current = box ? { ids, box } : null;
+        setSel(box ? { ids, box } : null);
       }
       paintBase();
       paintLive();
@@ -889,7 +939,7 @@ export function InkCanvas({
       // Carry the box through the same transform. Re-deriving it from the
       // strokes would read the pre-move geometry: the optimistic cache write
       // above has not re-rendered this component yet.
-      selectionRef.current = {
+      setSel({
         ids: sel.ids,
         box: {
           x: drag.ax + (sel.box.x - drag.ax) * drag.sx + drag.dx,
@@ -897,7 +947,7 @@ export function InkCanvas({
           w: sel.box.w * drag.sx,
           h: sel.box.h * drag.sy,
         },
-      };
+      });
       dragRef.current = null;
       hiddenRef.current = new Set();
       paintBase();
@@ -997,7 +1047,7 @@ export function InkCanvas({
         if (hitId) {
           const box = boundsOf([hitId], host_w);
           if (box) {
-            selectionRef.current = { ids: [hitId], box };
+            setSel({ ids: [hitId], box });
             dragRef.current = {
               kind: "move",
               ax: 0,
@@ -1019,7 +1069,7 @@ export function InkCanvas({
 
         // Blank page: begin a lasso. Whether this turns out to be a loop or
         // a plain tap is decided on release.
-        selectionRef.current = null;
+        setSel(null);
         lassoRef.current = [{ x: px, y: py }];
         drawStartRef.current = { x: px, y: py, clientX: e.clientX, clientY: e.clientY };
         scheduleLive();
@@ -1185,7 +1235,7 @@ export function InkCanvas({
             })
             .map((s2) => s2.id);
           const box = ids.length ? boundsOf(ids, host_w) : null;
-          selectionRef.current = box ? { ids, box } : null;
+          setSel(box ? { ids, box } : null);
         } else if (st) {
           // A tap, not a lasso. If it landed on a stroke, hand that stroke up —
           // tapping a word is how a recording is navigated. Otherwise treat it
@@ -1296,6 +1346,7 @@ export function InkCanvas({
     // over the page while the pen is active is just confusing.
     if (mode !== "select" && selectionRef.current) {
       selectionRef.current = null;
+      setSelection(null);
       lassoRef.current = null;
       dragRef.current = null;
       hiddenRef.current = new Set();
@@ -1321,6 +1372,66 @@ export function InkCanvas({
     >
       <canvas ref={baseRef} className="absolute inset-0 h-full w-full" />
       <canvas ref={liveRef} className="absolute inset-0 h-full w-full" />
+
+      {/* Actions for the current selection.
+          The dashed box and its handles are painted on the canvas, but these
+          are real buttons: a lasso that can only be moved and scaled is half a
+          tool, and deleting or recolouring a phrase is what the selection is
+          usually for. It sits above the box, or below it when the box is near
+          the top of the page and there is no room. */}
+      {mode === "select" && selection && (
+        <div
+          className="absolute z-30 flex items-center gap-1 rounded-xl border border-black/[0.06] bg-[var(--surface-elevated)]/95 px-1.5 py-1 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.4)] backdrop-blur-xl"
+          style={{
+            left: Math.max(4, selection.box.x),
+            top:
+              selection.box.y > 52 ? selection.box.y - 46 : selection.box.y + selection.box.h + 10,
+          }}
+          // The canvas below is listening for strokes; a tap on a button here
+          // must not also start one.
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            aria-label="Delete selection"
+            title="Delete"
+            onClick={() => {
+              eraseStrokesRef.current(selection.ids);
+              clearSelection();
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Duplicate selection"
+            title="Duplicate"
+            onClick={() => {
+              duplicateSelection(selection.ids);
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          {restyleStrokes && (
+            <>
+              <span className="mx-0.5 h-5 w-px rounded-full bg-border/60" />
+              {SELECTION_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`Recolour selection ${c}`}
+                  title="Recolour"
+                  onClick={() => restyleStrokes(selection.ids, { color: c })}
+                  className="h-5 w-5 rounded-full border border-black/10 transition-transform hover:scale-110"
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

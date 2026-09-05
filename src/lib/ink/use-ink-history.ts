@@ -5,6 +5,7 @@ import {
   useDeleteStrokesMutation,
   useInk,
   useUpdateStrokeGeometryMutation,
+  useRecolorStrokesMutation,
 } from "./use-ink";
 
 // tMs rides along so a stroke drawn during a recording keeps its offset all
@@ -41,6 +42,7 @@ export function useInkHistory(noteId: string) {
   const createStroke = useCreateStrokeMutation(noteId);
   const deleteStrokes = useDeleteStrokesMutation(noteId);
   const updateGeometry = useUpdateStrokeGeometryMutation(noteId);
+  const recolor = useRecolorStrokesMutation(noteId);
 
   // Refs drive the actual work (stable across renders); state mirrors depth so
   // the toolbar can enable/disable its buttons.
@@ -161,6 +163,12 @@ export function useInkHistory(noteId: string) {
     addStroke,
     eraseStrokes,
     moveStrokes,
+    // Deliberately outside the undo stack for now: recolour is easy to redo by
+    // hand, and threading it through history without also handling the
+    // pre-change colours per stroke would record an entry that undo cannot
+    // faithfully reverse.
+    restyleStrokes: (ids: string[], patch: { color: string }) =>
+      recolor.mutate({ ids, color: patch.color }),
     undo,
     redo,
     canUndo: depths.undo > 0,
