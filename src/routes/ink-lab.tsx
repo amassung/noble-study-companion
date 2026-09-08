@@ -44,6 +44,7 @@ function InkLab() {
         ))}
       </div>
       <p data-testid="stroke-count">strokes: {strokes.length}</p>
+      <p data-testid="colors">colors: {strokes.map((s) => s.color).join(",")}</p>
       <p data-testid="point-counts">points: {strokes.map((s) => s.points.length).join(",")}</p>
       <pre data-testid="point-dump" style={{ fontSize: 11, maxHeight: 120, overflow: "auto" }}>
         {strokes[0] ? JSON.stringify(strokes[0].points.slice(0, 12)) : ""}

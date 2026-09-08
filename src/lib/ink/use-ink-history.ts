@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { InkStroke, StrokeGeometry } from "./ink-api";
+import { groupByColor } from "./group-colors";
 import {
   useCreateStrokeMutation,
   useDeleteStrokesMutation,
@@ -24,7 +25,15 @@ type Op =
   | { type: "erase"; strokes: InkStroke[] }
   // A move or resize: same rows, different geometry, so undo is a straight
   // write-back rather than a delete/re-create.
-  | { type: "geometry"; before: StrokeGeometry[]; after: StrokeGeometry[] };
+  | { type: "geometry"; before: StrokeGeometry[]; after: StrokeGeometry[] }
+  // A recolour. `before` is per stroke because a selection can span several
+  // colours, and undo has to give each one its own colour back rather than
+  // flatten the lot to whatever the first stroke happened to be.
+  | {
+      type: "color";
+      before: { id: string; color: string }[];
+      after: { ids: string[]; color: string };
+    };
 
 /**
  * Ink editing with undo/redo.
@@ -106,6 +115,36 @@ export function useInkHistory(noteId: string) {
     [updateGeometry, strokes],
   );
 
+  /**
+   * Recolour strokes, remembering what each one was.
+   *
+   * Undo groups those previous colours and writes each group back, so a
+   * selection that mixed black and red undoes to black and red rather than to
+   * one of them.
+   */
+  const restyleStrokes = useCallback(
+    (ids: string[], patch: { color: string }) => {
+      if (ids.length === 0) return;
+      const before = strokes
+        .filter((s) => ids.includes(s.id))
+        .map((s) => ({ id: s.id, color: s.color }));
+      if (before.length === 0) return;
+      recolor.mutate({ ids, color: patch.color });
+      undoRef.current.push({ type: "color", before, after: { ids, color: patch.color } });
+      redoRef.current = [];
+      sync();
+    },
+    [recolor, strokes],
+  );
+
+  /** Write remembered per-stroke colours back, one call per distinct colour. */
+  const applyColors = useCallback(
+    (entries: { id: string; color: string }[]) => {
+      for (const [color, ids] of groupByColor(entries)) recolor.mutate({ ids, color });
+    },
+    [recolor],
+  );
+
   /** Re-create strokes, returning them with their new server ids. */
   const restore = useCallback(
     async (toRestore: InkStroke[]): Promise<InkStroke[]> => {
@@ -132,6 +171,9 @@ export function useInkHistory(noteId: string) {
     } else if (op.type === "geometry") {
       updateGeometry.mutate(op.before);
       redoRef.current.push(op);
+    } else if (op.type === "color") {
+      applyColors(op.before);
+      redoRef.current.push(op);
     } else {
       // Restoring assigns new ids, so the redo entry must carry those or a
       // later redo would try to delete rows that no longer exist.
@@ -139,7 +181,7 @@ export function useInkHistory(noteId: string) {
       redoRef.current.push({ type: "erase", strokes: restored });
     }
     sync();
-  }, [deleteStrokes, restore, updateGeometry]);
+  }, [deleteStrokes, restore, updateGeometry, applyColors]);
 
   const redo = useCallback(async () => {
     const op = redoRef.current.pop();
@@ -151,24 +193,22 @@ export function useInkHistory(noteId: string) {
     } else if (op.type === "geometry") {
       updateGeometry.mutate(op.after);
       undoRef.current.push(op);
+    } else if (op.type === "color") {
+      recolor.mutate(op.after);
+      undoRef.current.push(op);
     } else {
       deleteStrokes.mutate(op.strokes.map((s) => s.id));
       undoRef.current.push(op);
     }
     sync();
-  }, [deleteStrokes, restore, updateGeometry]);
+  }, [deleteStrokes, restore, updateGeometry, recolor]);
 
   return {
     strokes,
     addStroke,
     eraseStrokes,
     moveStrokes,
-    // Deliberately outside the undo stack for now: recolour is easy to redo by
-    // hand, and threading it through history without also handling the
-    // pre-change colours per stroke would record an entry that undo cannot
-    // faithfully reverse.
-    restyleStrokes: (ids: string[], patch: { color: string }) =>
-      recolor.mutate({ ids, color: patch.color }),
+    restyleStrokes,
     undo,
     redo,
     canUndo: depths.undo > 0,
