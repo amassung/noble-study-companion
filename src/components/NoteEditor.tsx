@@ -90,6 +90,7 @@ import { AudioRecorder } from "@/components/AudioRecorder";
 import { RecordingPlayer } from "@/components/RecordingPlayer";
 import { exportNoteToPdf } from "@/lib/export/export-note";
 import { plainTextFromHtml, MIN_STUDY_CHARS } from "@/lib/study/note-text";
+import { onPencilGesture } from "@/lib/ink/pencil-gesture";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
@@ -628,7 +629,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
   };
   const { theme } = useTheme();
   const [inkMode, setInkMode] = useState<InkMode>("off");
+  // The nib to come back to when the eraser is toggled off.
+  const lastNibRef = useRef<InkMode>("pen");
   const [pagesOpen, setPagesOpen] = useState(false);
+  // Opened by an Apple Pencil Pro squeeze.
+  const [pencilMenuOpen, setPencilMenuOpen] = useState(false);
   // Page zoom. Writing at 100% on a tablet produces oversized handwriting —
   // zooming in to write at a natural hand size is the normal GoodNotes
   // workflow, so the page scales rather than the pen.
@@ -1170,6 +1175,38 @@ export function NoteEditor({ noteId, onClose }: Props) {
     // Scribble stays armed against it.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   }, [editor, inkMode]);
+
+  // Remember the last real nib, so toggling the eraser returns to it.
+  useEffect(() => {
+    if (inkMode !== "off" && inkMode !== "eraser" && inkMode !== "select") {
+      lastNibRef.current = inkMode;
+    }
+  }, [inkMode]);
+
+  /**
+   * Apple Pencil hardware gestures.
+   *
+   * Squeeze opens a palette at the page, so a colour change costs a squeeze
+   * rather than a trip to the toolbar — which is the whole point of the
+   * gesture. Double-tap toggles the eraser, matching what the Pencil does
+   * everywhere else on the system; a gesture that behaved differently here
+   * than in every other app would be worse than no gesture.
+   *
+   * Both arrive only inside the iOS app, where the native side forwards them.
+   * On the web the listener simply never fires.
+   */
+  useEffect(() => {
+    return onPencilGesture((gesture) => {
+      if (gesture === "squeeze") {
+        setPencilMenuOpen((open) => !open);
+        return;
+      }
+      setInkMode((m) => {
+        if (m === "off") return m; // not drawing; leave the text editor alone
+        return m === "eraser" ? lastNibRef.current : "eraser";
+      });
+    });
+  }, []);
 
   // Focus title on open
   useEffect(() => {
@@ -2037,6 +2074,67 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   ))}
                 </div>
               </div>
+
+              {/* Pencil menu, opened by a squeeze.
+                Centred and large-targeted because it is reached without
+                looking: the hand is already on the page and the point of the
+                gesture is not having to find a small control. */}
+              {pencilMenuOpen && (
+                <div
+                  className="fixed inset-0 z-[120] flex items-center justify-center bg-black/20"
+                  onPointerDown={() => setPencilMenuOpen(false)}
+                  role="dialog"
+                  aria-label="Pencil menu"
+                >
+                  <div
+                    className="flex flex-col gap-3 rounded-3xl border border-black/[0.06] bg-[var(--surface-elevated)]/95 p-4 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-2">
+                      {INK_COLORS.slice(0, 8).map((c) => (
+                        <button
+                          key={c.value}
+                          type="button"
+                          aria-label={c.label}
+                          onClick={() => {
+                            setInkColor(c.value);
+                            setPencilMenuOpen(false);
+                          }}
+                          className={cn(
+                            "h-10 w-10 rounded-full border transition-transform",
+                            inkColor === c.value
+                              ? "scale-110 border-primary ring-2 ring-primary/40"
+                              : "border-border/60",
+                          )}
+                          style={{ backgroundColor: c.value }}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                      {(["pen", "pencil", "fineliner", "highlighter", "eraser"] as const).map(
+                        (m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => {
+                              setInkMode(m);
+                              setPencilMenuOpen(false);
+                            }}
+                            className={cn(
+                              "rounded-xl px-3 py-2 text-[13px] font-medium capitalize transition-colors",
+                              inkMode === m
+                                ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/25"
+                                : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                            )}
+                          >
+                            {m}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <RecordingPlayer noteId={noteId} seekRef={seekAudioRef} />
 
