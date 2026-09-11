@@ -1,7 +1,7 @@
 import {
   Eraser,
   Highlighter,
-  MousePointer2,
+  Lasso,
   Pen,
   PenLine,
   Pencil,
@@ -147,7 +147,10 @@ export function InkToolbar({
         is what made this feel like a website rather than an iPad app. Lifting
         it into a rounded, shadowed island over the page is most of what
         separates the two. */}
-        <Tool value="select" icon={<MousePointer2 className="h-4 w-4" />} label="Select" />
+        {/* "Select" read as a desktop arrow tool and nobody found it. It is a
+            lasso: circle some handwriting and you get move, resize, delete,
+            duplicate and recolour. Name and icon should say so. */}
+        <Tool value="select" icon={<Lasso className="h-4 w-4" />} label="Lasso" />
         <Tool value="pen" icon={<Pen className="h-4 w-4" />} label="Pen" />
         <Tool value="pencil" icon={<Pencil className="h-4 w-4" />} label="Pencil" />
         <Tool value="fineliner" icon={<PenLine className="h-4 w-4" />} label="Fine point" />

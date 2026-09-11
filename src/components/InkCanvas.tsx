@@ -337,7 +337,7 @@ export function InkCanvas({
       if (!w || !h) return null;
       // Backing-store resolution follows the zoom so strokes are re-rendered
       // sharp rather than magnified. See inkResolution for the cap.
-      const dpr = inkResolution(window.devicePixelRatio, propsRef.current.zoom ?? 1);
+      const dpr = inkResolution(window.devicePixelRatio, propsRef.current.zoom ?? 1, w, h);
       for (const c of [base, live]) {
         const pw = Math.round(w * dpr);
         const ph = Math.round(h * dpr);
