@@ -9,7 +9,13 @@
  * as a web deploy rather than another App Store review.
  */
 
-export type PencilGesture = "squeeze" | "doubletap";
+/**
+ * `tap` and `doubletap` are the same gesture from two eras of the API: iOS
+ * 17.5 replaced the old callback and stopped delivering it, so the native
+ * side implements both and reports which one arrived. They mean the same
+ * thing here.
+ */
+export type PencilGesture = "squeeze" | "doubletap" | "tap";
 
 export const PENCIL_EVENT = "nobi:pencil";
 
@@ -20,7 +26,7 @@ export function onPencilGesture(handler: (gesture: PencilGesture) => void): () =
     const g = detail?.gesture;
     // Anything unrecognised is ignored rather than guessed at: a future
     // gesture added natively should do nothing here, not the wrong thing.
-    if (g === "squeeze" || g === "doubletap") handler(g);
+    if (g === "squeeze" || g === "doubletap" || g === "tap") handler(g);
   };
   window.addEventListener(PENCIL_EVENT, listener);
   return () => window.removeEventListener(PENCIL_EVENT, listener);

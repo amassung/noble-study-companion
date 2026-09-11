@@ -50,7 +50,23 @@ extension PencilViewController: UIPencilInteractionDelegate {
     notifyWeb("squeeze")
   }
 
-  /// Double-tap, on Pencil 2 and Pencil Pro.
+  /// Double-tap, iOS 17.5 and newer.
+  ///
+  /// The older callback below did not fire on device. It was deprecated in
+  /// 17.5 in favour of this one, and building against a current SDK appears
+  /// to stop it being delivered at all — so both are implemented and the
+  /// system picks. They report different names so a device can say which one
+  /// actually arrived instead of us guessing across another build.
+  @available(iOS 17.5, *)
+  func pencilInteraction(
+    _ interaction: UIPencilInteraction,
+    didReceiveTap tap: UIPencilInteraction.Tap
+  ) {
+    notifyWeb("tap")
+  }
+
+  /// Double-tap on iOS below 17.5.
+  @available(iOS, deprecated: 17.5)
   func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
     notifyWeb("doubletap")
   }

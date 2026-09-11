@@ -1201,6 +1201,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
         setPencilMenuOpen((open) => !open);
         return;
       }
+      // "tap" and "doubletap" are the same gesture reported by the new and
+      // old iOS callbacks; both toggle the eraser.
       setInkMode((m) => {
         if (m === "off") return m; // not drawing; leave the text editor alone
         return m === "eraser" ? lastNibRef.current : "eraser";
