@@ -75,6 +75,7 @@ export function useDeleteStrokesMutation(noteId: string) {
   return useMutation({
     // Strokes still holding a temporary id were never persisted, so there is
     // nothing to delete server-side — drop them locally only.
+    mutationKey: OFFLINE_MUTATION_KEYS.deleteStrokes,
     mutationFn: (ids: string[]) => deleteStrokes(ids.filter((id) => !isTempStrokeId(id))),
     onMutate: async (ids) => {
       await qc.cancelQueries({ queryKey: inkKey(noteId) });
@@ -94,6 +95,7 @@ export function useDeleteStrokesMutation(noteId: string) {
 export function useRecolorStrokesMutation(noteId: string) {
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: OFFLINE_MUTATION_KEYS.recolorStrokes,
     mutationFn: ({ ids, color }: { ids: string[]; color: string }) =>
       updateStrokeColor(
         ids.filter((id) => !isTempStrokeId(id)),
@@ -119,6 +121,7 @@ export function useUpdateStrokeGeometryMutation(noteId: string) {
   return useMutation({
     // Strokes still holding a temporary id have no server row yet; their new
     // geometry rides along on the insert that is already in flight.
+    mutationKey: OFFLINE_MUTATION_KEYS.updateStrokeGeometry,
     mutationFn: (updates: StrokeGeometry[]) =>
       updateStrokeGeometry(updates.filter((u) => !isTempStrokeId(u.id))),
     onMutate: async (updates) => {
