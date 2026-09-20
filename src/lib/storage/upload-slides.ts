@@ -3,9 +3,14 @@ import { getSupabaseClient } from "@/lib/supabase/client";
 const SLIDES_BUCKET = "slides";
 
 /**
- * Upload rendered PDF page blobs to Supabase Storage and return their public
- * URLs, in page order. Paths are `{userId}/{noteId}/{importId}-{page}.jpg` so
+ * Upload rendered PDF page blobs to Supabase Storage and return a URL per
+ * page, in order. Paths are `{userId}/{noteId}/{importId}-{page}.jpg` so
  * storage RLS can verify ownership from the first path segment.
+ *
+ * The bucket is private, so the returned public-form URL does not resolve on
+ * its own — it is an identifier that gets signed at display time. Storing that
+ * stable form rather than a signed one is deliberate: a signature expires
+ * within the hour, and a note body is kept for years.
  */
 export async function uploadSlideImages(opts: {
   userId: string;
@@ -34,10 +39,12 @@ export async function uploadSlideImages(opts: {
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /**
- * Upload one image (pasted, dropped, photographed, or picked) and return its
- * public URL. Reuses the slides bucket so the existing ownership policy —
- * which keys off the first path segment being the user's id — applies
- * unchanged.
+ * Upload one image (pasted, dropped, photographed, or picked) and return a
+ * URL for it. Reuses the slides bucket so the ownership policy — which keys
+ * off the first path segment being the user's id — applies unchanged.
+ *
+ * As above, the URL is the stable identifier stored in the note; it is signed
+ * when the image is actually shown.
  */
 export async function uploadNoteImage(opts: {
   userId: string;

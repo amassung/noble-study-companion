@@ -91,6 +91,7 @@ import { RecordingPlayer } from "@/components/RecordingPlayer";
 import { exportNoteToPdf } from "@/lib/export/export-note";
 import { plainTextFromHtml, MIN_STUDY_CHARS } from "@/lib/study/note-text";
 import { onPencilGesture } from "@/lib/ink/pencil-gesture";
+import { useSignedSlideUrls } from "@/lib/storage/signed-url";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
@@ -1045,6 +1046,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
     return out;
   }, [body]);
 
+  // The bucket is private, so the URLs stored in the body identify a slide
+  // rather than fetch one. Signing happens here, at display.
+  const { resolve: signSlide } = useSignedSlideUrls(slideUrls);
+
   const pageCount = Math.max(derivedPages, manualPages, slideUrls.length);
   const [currentPage, setCurrentPage] = useState(0);
   const pageMarkersRef = useRef<(HTMLDivElement | null)[]>([]);
@@ -1783,7 +1788,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                   >
                     {slideUrls[i] ? (
                       <img
-                        src={slideUrls[i]}
+                        src={signSlide(slideUrls[i]) || undefined}
                         alt=""
                         aria-hidden
                         draggable={false}
@@ -2273,21 +2278,27 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 {/* Imported slides, one per page, behind everything else.
                   Sitting under the ink layer is the whole point: the Pencil
                   writes on the slide the way it would on a printed handout. */}
-                {slideUrls.map((src, i) => (
-                  <img
-                    key={`slide-${i}`}
-                    src={src}
-                    alt=""
-                    aria-hidden
-                    draggable={false}
-                    className="pointer-events-none absolute inset-x-0 z-0 select-none object-contain"
-                    style={{
-                      top: `${i * PAGE_HEIGHT}px`,
-                      height: `${PAGE_HEIGHT - PAGE_GAP}px`,
-                      width: "100%",
-                    }}
-                  />
-                ))}
+                {slideUrls.map((stored, i) => {
+                  // Nothing until the signature is in hand: an empty src is a
+                  // broken image, which reads worse than a page not yet drawn.
+                  const src = signSlide(stored);
+                  if (!src) return null;
+                  return (
+                    <img
+                      key={`slide-${i}`}
+                      src={src}
+                      alt=""
+                      aria-hidden
+                      draggable={false}
+                      className="pointer-events-none absolute inset-x-0 z-0 select-none object-contain"
+                      style={{
+                        top: `${i * PAGE_HEIGHT}px`,
+                        height: `${PAGE_HEIGHT - PAGE_GAP}px`,
+                        width: "100%",
+                      }}
+                    />
+                  );
+                })}
 
                 <div className={cn("relative z-[1]", hidePlaceholder && "ink-active")}>
                   <EditorContent editor={editor} />

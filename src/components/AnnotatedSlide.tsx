@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { X as XIcon } from "lucide-react";
 import { getStroke } from "perfect-freehand";
 import { useAnnotationContext } from "./AnnotationContext";
+import { useSignedSlideUrls } from "@/lib/storage/signed-url";
 import {
   useAnnotations,
   useUpsertAnnotationMutation,
@@ -62,16 +63,24 @@ export function AnnotatedSlideView({ node }: NodeViewProps) {
   const src: string = node.attrs.src ?? "";
   const alt: string = node.attrs.alt ?? "";
 
+  // Images live in a private bucket, so what the body stores identifies the
+  // file rather than fetching it. Sign it here, at display. Anything that is
+  // not ours — an image pasted from the web — passes through untouched.
+  const { resolve } = useSignedSlideUrls([src]);
+  const signed = resolve(src);
+
   // If no slide-key this is a non-annotatable image — render as plain img
   if (!slideKey) {
     return (
       <NodeViewWrapper as="span">
-        <img src={src} alt={alt} style={{ width: "100%", height: "auto", display: "block" }} />
+        {signed ? (
+          <img src={signed} alt={alt} style={{ width: "100%", height: "auto", display: "block" }} />
+        ) : null}
       </NodeViewWrapper>
     );
   }
 
-  return <AnnotatedSlideInner slideKey={slideKey} src={src} alt={alt} />;
+  return <AnnotatedSlideInner slideKey={slideKey} src={signed} alt={alt} />;
 }
 
 function AnnotatedSlideInner({
