@@ -530,11 +530,13 @@ export function InkCanvas({
       const ctx = live.getContext("2d");
       if (!ctx) return;
       ctx.setTransform(dims.dpr, 0, 0, dims.dpr, 0, 0);
+
       ctx.clearRect(0, 0, dims.w, dims.h);
+
       const { color: c, size: s, mode: m } = propsRef.current;
 
       // The stroke under the nib.
-      const pts = activeRef.current;
+      const pts = predicted.length ? [...activeRef.current, ...predicted] : activeRef.current;
       if (pts.length) renderTo(ctx, dims.w, pts, c, s, isDrawTool(m) ? m : "pen");
 
       // A selection being dragged, drawn at its new position.
@@ -623,6 +625,10 @@ export function InkCanvas({
     // The pending flag is tracked separately from the frame handle: clearing
     // the handle inside the callback would be undone by the assignment that
     // follows it, wedging the scheduler permanently.
+    // Where the pen is predicted to go next. Drawn on the live layer only and
+    // never committed, so a wrong guess costs a frame and never a saved
+    // stroke.
+    let predicted: Point[] = [];
     let livePending = false;
     const scheduleLive = () => {
       if (livePending) return;
@@ -714,6 +720,14 @@ export function InkCanvas({
       paintLive();
     };
     paintBase();
+
+    // Dev only: let the ink bench force a synchronous paint. Painting is
+    // driven by requestAnimationFrame, which a hidden or backgrounded tab
+    // throttles to roughly once a second — so a measurement that waits on
+    // frames measures the throttle rather than the renderer.
+    if (import.meta.env.DEV) {
+      (host as unknown as { __repaint?: () => void }).__repaint = () => repaintRef.current?.();
+    }
 
     const pointFrom = (e: { clientX: number; clientY: number; pressure: number }): Point => {
       const rect = host.getBoundingClientRect();
@@ -870,6 +884,7 @@ export function InkCanvas({
       drawingRef.current = false;
       penStrokeRef.current = false;
       strokePointerRef.current = null;
+      predicted = [];
       commitCarve();
       const pts = activeRef.current;
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
@@ -1191,13 +1206,20 @@ export function InkCanvas({
       const samples = coalesced.length ? coalesced : [e];
       const rect = host.getBoundingClientRect();
       const scale = host.offsetWidth > 0 ? rect.width / host.offsetWidth : 1;
-      for (const c of samples) {
-        activeRef.current.push([
-          (c.clientX - rect.left) / rect.width,
-          (c.clientY - rect.top) / scale,
-          c.pressure > 0 ? c.pressure : 0.5,
-        ]);
-      }
+      const toPoint = (c: PointerEvent): Point => [
+        (c.clientX - rect.left) / rect.width,
+        (c.clientY - rect.top) / scale,
+        c.pressure > 0 ? c.pressure : 0.5,
+      ];
+      for (const c of samples) activeRef.current.push(toPoint(c));
+
+      // Where the browser thinks the pen is heading. Ink lands under the nib
+      // instead of trailing a frame or two behind it, which is most of what
+      // separates handwriting that feels immediate from handwriting that
+      // feels like software. These points are shown and then thrown away:
+      // the next real sample replaces them, and only real samples are saved.
+      predicted = (e.getPredictedEvents?.() ?? []).map(toPoint);
+
       scheduleLive();
     };
 
