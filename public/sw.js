@@ -49,16 +49,50 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+/**
+ * Most hashed assets to keep.
+ *
+ * Asset filenames carry a content hash, so every deploy writes new entries and
+ * the old ones can never be requested again. Nothing evicted them: the cache
+ * name is fixed, so the activate handler that clears old versions never fires
+ * for them. Across a term of deploys that grows without limit until the origin
+ * hits its storage quota, at which point writes start failing on the device —
+ * for files no page will ever ask for again. A generous cap holds several
+ * builds at once while keeping the total bounded.
+ */
+const MAX_ASSETS = 160;
+
+/** Drop the oldest entries once the asset cache outgrows its cap. */
+async function trimAssets(cache) {
+  const keys = await cache.keys();
+  if (keys.length <= MAX_ASSETS) return;
+  // Cache keys come back in insertion order, so the front is the oldest.
+  await Promise.all(keys.slice(0, keys.length - MAX_ASSETS).map((k) => cache.delete(k)));
+}
+
 /** Cache-first: hashed assets never change under a given name. */
 async function assetFirst(request) {
   const cached = await caches.match(request);
   if (cached) return cached;
   const response = await fetch(request);
   if (response && response.ok) {
-    const cache = await caches.open(ASSET_CACHE);
-    cache.put(request, response.clone());
+    const copy = response.clone();
+    // Storing is best-effort: a full quota must never fail the request that
+    // the page is actually waiting on.
+    bestEffort(async () => {
+      const cache = await caches.open(ASSET_CACHE);
+      await cache.put(request, copy);
+      await trimAssets(cache);
+    });
   }
   return response;
+}
+
+/** Run background cache work without letting a failure reject anything. */
+function bestEffort(work) {
+  work().catch(() => {
+    /* quota, eviction, or a racing update — the response still went out */
+  });
 }
 
 /** Network-first: fresh page when online, last known shell when not. */
