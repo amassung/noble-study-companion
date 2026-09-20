@@ -81,19 +81,24 @@ export type Grade = "again" | "good" | "easy";
  * rather than burying it, because a student cramming for Thursday's midterm
  * needs the card they just missed to come back in this session.
  */
-export function schedule(
-  prev: CardProgress | undefined,
-  grade: Grade,
-  now = Date.now(),
-): CardProgress {
-  const ease = prev?.ease ?? 2.5;
-  const reps = prev?.reps ?? 0;
-  const lapses = prev?.lapses ?? 0;
+/**
+ * The next scheduling for a card, given how the student graded it.
+ *
+ * `prev` is required rather than optional, and carries the identity. It used
+ * to accept undefined and fall back to empty strings for cardKey and noteId,
+ * which no caller ever hit — every one builds a record first — but which would
+ * have written progress under an empty key if one ever did. That failure is
+ * silent and compounding: the card stays new forever, so a student keeps
+ * re-reviewing what they already know and never sees what they don't, right
+ * when the schedule matters most. Better it cannot be expressed.
+ */
+export function schedule(prev: CardProgress, grade: Grade, now = Date.now()): CardProgress {
+  const { ease, reps, lapses } = prev;
 
   if (grade === "again") {
     return {
-      cardKey: prev?.cardKey ?? "",
-      noteId: prev?.noteId ?? "",
+      cardKey: prev.cardKey,
+      noteId: prev.noteId,
       // Floor the ease so a hard card never becomes impossible to schedule.
       ease: Math.max(1.3, ease - 0.2),
       intervalDays: 0,
@@ -109,11 +114,11 @@ export function schedule(
   if (reps === 0) intervalDays = grade === "easy" ? 3 : 1;
   else if (reps === 1) intervalDays = grade === "easy" ? 6 : 3;
   else
-    intervalDays = Math.round((prev?.intervalDays || 1) * nextEase * (grade === "easy" ? 1.3 : 1));
+    intervalDays = Math.round((prev.intervalDays || 1) * nextEase * (grade === "easy" ? 1.3 : 1));
 
   return {
-    cardKey: prev?.cardKey ?? "",
-    noteId: prev?.noteId ?? "",
+    cardKey: prev.cardKey,
+    noteId: prev.noteId,
     ease: Math.min(3.2, nextEase),
     intervalDays,
     reps: reps + 1,
