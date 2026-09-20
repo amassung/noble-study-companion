@@ -578,15 +578,22 @@ export function NoteEditor({ noteId, onClose }: Props) {
    * a handwritten note studyable at all.
    */
   /** Export this note as a PDF: typed body as real text, ink as an image. */
-  const exportPdf = () => {
+  const exportPdf = async () => {
     try {
-      const { filename, pages } = exportNoteToPdf({
+      const { filename, pages, delivered } = await exportNoteToPdf({
         title,
         bodyHtml: body,
         inkImageDataUrl: inkSnapshotRef.current?.() ?? null,
         subjectLabel,
       });
-      toast.success(`Exported ${filename} (${pages} ${pages === 1 ? "page" : "pages"})`);
+      // Dismissing the share sheet is a decision, not an error.
+      if (delivered === "cancelled") return;
+      const count = `${pages} ${pages === 1 ? "page" : "pages"}`;
+      toast.success(
+        delivered === "shared"
+          ? `Shared ${filename} (${count})`
+          : `Exported ${filename} (${count})`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't export this note.");
     }

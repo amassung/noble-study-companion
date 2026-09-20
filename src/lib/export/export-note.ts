@@ -52,7 +52,7 @@ export function bodyHtmlToLines(html: string): string[] {
   return lines;
 }
 
-export function exportNoteToPdf({
+export async function exportNoteToPdf({
   title,
   bodyHtml,
   inkImageDataUrl,
@@ -62,7 +62,12 @@ export function exportNoteToPdf({
   bodyHtml: string;
   inkImageDataUrl?: string | null;
   subjectLabel?: string;
-}): { filename: string; pages: number } {
+}): Promise<{
+  filename: string;
+  pages: number;
+  /** How the file reached the student, or that they dismissed the sheet. */
+  delivered: "shared" | "downloaded" | "cancelled";
+}> {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
@@ -130,6 +135,36 @@ export function exportNoteToPdf({
       .trim()
       .slice(0, 60) || "note"
   }.pdf`;
+  const pages = doc.getNumberOfPages();
+
+  // Saving a file is where this broke on iPad. jsPDF's save() is an anchor
+  // download, and a web view refuses those outright — the button appeared to
+  // work and nothing ever arrived. The Web Share API is the route iOS does
+  // honour: it opens the system sheet, so the PDF can go to Files, AirDrop,
+  // or straight into an email, which is what a student wants anyway.
+  const blob = doc.output("blob") as Blob;
+  const file = new File([blob], filename, { type: "application/pdf" });
+
+  const canShare =
+    typeof navigator !== "undefined" &&
+    typeof navigator.canShare === "function" &&
+    navigator.canShare({ files: [file] });
+
+  if (canShare) {
+    try {
+      await navigator.share({ files: [file], title: noteTitle || filename });
+      return { filename, pages, delivered: "shared" as const };
+    } catch (e) {
+      // Dismissing the sheet is a choice, not a failure, and must not be
+      // reported as one or every cancelled export looks like a bug.
+      if (e instanceof DOMException && e.name === "AbortError") {
+        return { filename, pages, delivered: "cancelled" as const };
+      }
+      // Anything else: fall through to the download, which still works on
+      // the desktop web app.
+    }
+  }
+
   doc.save(filename);
-  return { filename, pages: doc.getNumberOfPages() };
+  return { filename, pages, delivered: "downloaded" as const };
 }
