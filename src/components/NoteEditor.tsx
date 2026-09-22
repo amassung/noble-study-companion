@@ -92,6 +92,8 @@ import { exportNoteToPdf } from "@/lib/export/export-note";
 import { plainTextFromHtml, MIN_STUDY_CHARS } from "@/lib/study/note-text";
 import { onPencilGesture } from "@/lib/ink/pencil-gesture";
 import { useSignedSlideUrls } from "@/lib/storage/signed-url";
+import { useAiUsage, aiUsageKey } from "@/lib/billing/use-usage";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "@/lib/theme/theme-provider";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 
@@ -633,6 +635,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       toast.error(e instanceof Error ? e.message : "Couldn't read that page.");
     } finally {
       setTranscribing(false);
+      refreshAiUsage();
     }
   };
   const { theme } = useTheme();
@@ -1049,6 +1052,11 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // The bucket is private, so the URLs stored in the body identify a slide
   // rather than fetch one. Signing happens here, at display.
   const { resolve: signSlide } = useSignedSlideUrls(slideUrls);
+  const { data: aiUsage } = useAiUsage();
+  const queryClient = useQueryClient();
+  // Every AI action moves the meter, including a refused one, so refresh
+  // after each rather than letting the count drift until the next focus.
+  const refreshAiUsage = () => void queryClient.invalidateQueries({ queryKey: aiUsageKey });
 
   const pageCount = Math.max(derivedPages, manualPages, slideUrls.length);
   const [currentPage, setCurrentPage] = useState(0);
@@ -1519,6 +1527,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       toast.error(err instanceof Error ? err.message : "Couldn't condense document. Try again.");
     } finally {
       dismissChoice();
+      refreshAiUsage();
     }
   };
 
@@ -2182,6 +2191,26 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </span>
               </button>
 
+              {/* What is left this month. Shown before it runs out, not only
+                  once it has — hitting the wall mid-revision the night before
+                  an exam is the moment this is meant to prevent. */}
+              {aiUsage && !aiUsage.pro && (
+                <p
+                  className={cn(
+                    "-mt-2 mb-4 px-1 text-[12px]",
+                    aiUsage.remaining === 0
+                      ? "font-medium text-amber-600"
+                      : aiUsage.remaining <= 3
+                        ? "text-amber-600"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {aiUsage.remaining === 0
+                    ? `All ${aiUsage.limit} AI actions used this month. Notes and handwriting stay unlimited.`
+                    : `${aiUsage.remaining} of ${aiUsage.limit} AI actions left this month`}
+                </p>
+              )}
+
               {/* Saved guides */}
               <section className="mb-6">
                 <div className="mb-3 flex items-center justify-between">
@@ -2343,7 +2372,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
         {/* ── Modals ────────────────────────────────────────────────────── */}
         <LearnSheet
           open={learnOpen}
-          onClose={() => setLearnOpen(false)}
+          onClose={() => {
+            setLearnOpen(false);
+            refreshAiUsage();
+          }}
           note={liveNote}
           title={title}
           body={body}
@@ -2353,7 +2385,10 @@ export function NoteEditor({ noteId, onClose }: Props) {
         {guideOpen && (
           <StudyGuideModal
             open={guideOpen}
-            onClose={() => setGuideOpen(false)}
+            onClose={() => {
+              setGuideOpen(false);
+              refreshAiUsage();
+            }}
             note={{ title, body, subjectLabel }}
             noteId={noteId}
           />

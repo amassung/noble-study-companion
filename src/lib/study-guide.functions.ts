@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireUser } from "@/lib/supabase/require-user.server";
+import { consumeAiAction } from "@/lib/billing/meter.server";
 import { anthropicHeaders, anthropicError } from "@/lib/ai/anthropic.server";
 import { plainTextFromHtml, MIN_STUDY_CHARS } from "@/lib/study/note-text";
 
@@ -64,7 +65,9 @@ export const generateStudyGuide = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }): Promise<StudyGuide> => {
-    await requireUser();
+    const user = await requireUser();
+    // Meter before spending: a refusal must cost nothing.
+    await consumeAiAction(user.id, "study_guide");
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");

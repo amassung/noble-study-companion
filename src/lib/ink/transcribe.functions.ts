@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireUser } from "@/lib/supabase/require-user.server";
+import { consumeAiAction } from "@/lib/billing/meter.server";
 import { anthropicHeaders, anthropicError } from "@/lib/ai/anthropic.server";
 
 /**
@@ -41,7 +42,9 @@ export const transcribeHandwriting = createServerFn({ method: "POST" })
     return { imageBase64: input.imageBase64, mediaType };
   })
   .handler(async ({ data }): Promise<{ text: string }> => {
-    await requireUser();
+    const user = await requireUser();
+    // Meter before spending: a refusal must cost nothing.
+    await consumeAiAction(user.id, "transcribe");
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");

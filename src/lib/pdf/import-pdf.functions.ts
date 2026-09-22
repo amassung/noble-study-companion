@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireUser } from "@/lib/supabase/require-user.server";
+import { consumeAiAction } from "@/lib/billing/meter.server";
 
 const MAX_BODY_CHARS = 12_000; // cap before sending to Claude
 // 10 MB file cap, mirrored server-side. Base64 inflates bytes by 4/3.
@@ -93,7 +94,10 @@ export const condensePdfContent = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }): Promise<CondenseResult> => {
-    await requireUser();
+    const user = await requireUser();
+    // Meter before spending. Only condensing calls Claude; plain
+    // extraction happens in the browser and must not use up an action.
+    await consumeAiAction(user.id, "condense");
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
