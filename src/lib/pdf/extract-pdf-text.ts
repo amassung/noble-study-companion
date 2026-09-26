@@ -13,6 +13,8 @@
  * that was uploading megabytes to learn a few kilobytes of text.
  */
 
+import { ensureStreamAsyncIterator } from "./stream-async-iterator";
+
 const MAX_BODY_CHARS = 12_000; // cap before any of this reaches Claude
 
 export interface ExtractedPdf {
@@ -40,6 +42,10 @@ async function step<T>(label: string, run: () => Promise<T> | T): Promise<T> {
 }
 
 export async function extractPdfText(file: File): Promise<ExtractedPdf> {
+  // Safari cannot async-iterate a ReadableStream, which is how pdf.js reads
+  // page text. Install that before anything touches a PDF.
+  ensureStreamAsyncIterator();
+
   const [pdfjs, { default: workerSrc }] = await step("loading pdf.js", () =>
     Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")]),
   );

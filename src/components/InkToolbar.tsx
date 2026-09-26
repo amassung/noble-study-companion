@@ -50,10 +50,21 @@ export const ERASER_SIZES = [
   { label: "Broad", value: 52 },
 ] as const;
 
+/**
+ * Nib widths, in page px.
+ *
+ * The old floor of 2.5 was a marker, not a pen. Real handwriting needs a
+ * genuinely fine point — a 0.5 rollerball for annotating between printed
+ * lines on a slide, a 0.7 for ordinary notes — and the range here now spans
+ * that up to a broad marker, which is the same span GoodNotes offers.
+ */
 export const PEN_SIZES = [
-  { label: "Fine", value: 2.5 },
-  { label: "Medium", value: 5 },
-  { label: "Bold", value: 9 },
+  { label: "0.5 — extra fine", value: 0.5 },
+  { label: "0.7 — fine", value: 0.7 },
+  { label: "1 — medium", value: 1 },
+  { label: "2 — bold", value: 2 },
+  { label: "4 — marker", value: 4 },
+  { label: "8 — broad", value: 8 },
 ] as const;
 
 /**
@@ -316,8 +327,12 @@ export function InkToolbar({
                 <span
                   className="rounded-full bg-current"
                   style={{
-                    width: `${s.value + 2}px`,
-                    height: `${s.value + 2}px`,
+                    // The swatch tracks nib width but cannot be literal at
+                    // both ends: 0.5px is invisible on a retina screen and
+                    // 8px crowds the button. A floor plus a gentle curve
+                    // keeps every size distinguishable and tappable.
+                    width: `${Math.min(14, 3 + s.value * 1.3)}px`,
+                    height: `${Math.min(14, 3 + s.value * 1.3)}px`,
                     color: size === s.value ? "var(--primary)" : "var(--muted-foreground)",
                   }}
                 />

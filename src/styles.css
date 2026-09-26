@@ -557,3 +557,40 @@ html,
 body {
   overscroll-behavior: none;
 }
+
+/* ── Stop the app behaving like a web page ──────────────────────────────────
+   On iPad, long-pressing anything in a web view selects it, raises the blue
+   selection highlight and the copy/look-up callout, and flashes a grey box on
+   every tap. None of that belongs in a notes app: a long press on a page is a
+   student resting their hand, not asking to copy a toolbar label. Selection
+   is switched off by default and handed back only where text is genuinely
+   edited or read. */
+html,
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  /* The grey flash iOS paints over any tapped element. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Anywhere a student actually writes, selects or reads text, give it back —
+   editing without selection is not editing. */
+.tiptap,
+.ProseMirror,
+input,
+textarea,
+[contenteditable="true"],
+[data-selectable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Study material is meant to be read and quoted, so it keeps selection even
+   though it is not editable. */
+.study-guide-body,
+.learn-answer {
+  -webkit-user-select: text;
+  user-select: text;
+}

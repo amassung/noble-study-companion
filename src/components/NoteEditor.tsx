@@ -68,6 +68,7 @@ import {
 } from "@/lib/notes/use-notes";
 import { condensePdfContent } from "@/lib/pdf/import-pdf.functions";
 import { extractPdfText } from "@/lib/pdf/extract-pdf-text";
+import { ensureStreamAsyncIterator } from "@/lib/pdf/stream-async-iterator";
 import { uploadSlideImages, uploadNoteImage, MAX_IMAGE_BYTES } from "@/lib/storage/upload-slides";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { StudyGuideModal } from "@/components/StudyGuideModal";
@@ -250,6 +251,8 @@ const AnnotatedSlideExtension = Image.extend({
 
 // ── Client-side PDF → images ───────────────────────────────────────────────
 async function renderPdfToImages(file: File): Promise<Blob[]> {
+  // pdf.js iterates streams internally; Safari needs that ability installed.
+  ensureStreamAsyncIterator();
   // Lazy-load pdfjs-dist so it doesn't bloat the initial bundle
   const [pdfjs, { default: workerSrc }] = await Promise.all([
     import("pdfjs-dist"),
