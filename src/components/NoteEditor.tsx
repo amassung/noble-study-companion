@@ -2447,36 +2447,46 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 </div>
               </div>
 
-              {/* Options */}
+              {/* Options.
+                  Slides first and highlighted: importing a lecture deck to
+                  write on it is what this is for nearly every time, and the
+                  other two turn the deck into prose, which is a different and
+                  rarer job. Putting the common case third behind two
+                  text-shaped options was why this dialog read as a puzzle. */}
               <div className="space-y-2">
-                {/* Raw Text */}
+                {/* Slides — the usual answer */}
                 <ImportOption
-                  icon={<FileText className="h-4 w-4" />}
-                  label="Raw Text"
-                  description="Insert the full extracted text as-is"
-                  disabled={!pendingPdf.hasText}
-                  disabledReason="No text found in this PDF"
-                  onClick={handleImportRaw}
+                  icon={<GalleryHorizontal className="h-4 w-4" />}
+                  label="Slides — write on them"
+                  badge="Recommended"
+                  description={`Each page becomes a page you can annotate with the Pencil${
+                    pendingPdf.totalPages > MAX_SLIDE_PAGES
+                      ? ` (first ${MAX_SLIDE_PAGES} of ${pendingPdf.totalPages})`
+                      : ""
+                  }`}
+                  onClick={() => void handleImportSlides()}
+                  highlight
                 />
 
                 {/* Condensed */}
                 <ImportOption
                   icon={<Sparkles className="h-4 w-4" />}
-                  label="Condensed"
+                  label="Condensed notes"
                   badge="AI"
-                  description="Summarise to key points using Claude"
+                  description="Summarise the deck to key points as text"
                   disabled={!pendingPdf.hasText}
                   disabledReason="No text found in this PDF"
                   onClick={() => void handleImportCondense()}
-                  highlight
                 />
 
-                {/* Slides */}
+                {/* Raw Text */}
                 <ImportOption
-                  icon={<GalleryHorizontal className="h-4 w-4" />}
-                  label="Slides View"
-                  description={`Render each page as an image${pendingPdf.totalPages > MAX_SLIDE_PAGES ? ` (first ${MAX_SLIDE_PAGES} of ${pendingPdf.totalPages})` : ""}`}
-                  onClick={() => void handleImportSlides()}
+                  icon={<FileText className="h-4 w-4" />}
+                  label="Raw text"
+                  description="Insert the extracted text as-is"
+                  disabled={!pendingPdf.hasText}
+                  disabledReason="No text found in this PDF"
+                  onClick={handleImportRaw}
                 />
               </div>
 
