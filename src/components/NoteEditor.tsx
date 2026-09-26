@@ -89,6 +89,7 @@ import { useInkHistory } from "@/lib/ink/use-ink-history";
 import { transcribeHandwriting } from "@/lib/ink/transcribe.functions";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { RecordingPlayer } from "@/components/RecordingPlayer";
+import { AskPanel } from "@/components/AskPanel";
 import { exportNoteToPdf } from "@/lib/export/export-note";
 import { plainTextFromHtml, MIN_STUDY_CHARS } from "@/lib/study/note-text";
 import { onPencilGesture } from "@/lib/ink/pencil-gesture";
@@ -648,6 +649,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
   const [pagesOpen, setPagesOpen] = useState(false);
   // Opened by an Apple Pencil Pro squeeze.
   const [pencilMenuOpen, setPencilMenuOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   // Page zoom. Writing at 100% on a tablet produces oversized handwriting —
   // zooming in to write at a natural hand size is the normal GoodNotes
   // workflow, so the page scales rather than the pen.
@@ -1991,6 +1993,21 @@ export function NoteEditor({ noteId, onClose }: Props) {
                 <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-[var(--surface)] px-1.5 py-1">
                   <button
                     type="button"
+                    onClick={() => setAskOpen((v) => !v)}
+                    aria-label="Ask this note"
+                    aria-pressed={askOpen}
+                    title="Ask questions about this note"
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-md transition-colors",
+                      askOpen
+                        ? "bg-primary/15 text-primary"
+                        : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
+                    )}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setPagesOpen((v) => !v)}
                     aria-label="Page thumbnails"
                     aria-pressed={pagesOpen}
@@ -2549,6 +2566,17 @@ export function NoteEditor({ noteId, onClose }: Props) {
           </div>
         )}
       </div>
+
+      {/* Ask, docked beside the page rather than over it. The whole point
+            of asking your own notes is being able to see them while you do. */}
+      {askOpen && (
+        <AskPanel
+          title={title}
+          body={body}
+          onClose={() => setAskOpen(false)}
+          onUsed={refreshAiUsage}
+        />
+      )}
     </div>,
     document.body,
   );

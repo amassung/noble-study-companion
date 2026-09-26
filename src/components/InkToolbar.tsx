@@ -2,6 +2,7 @@ import {
   Eraser,
   Highlighter,
   Lasso,
+  GripVertical,
   Pen,
   PenLine,
   Pencil,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { useToolbarPosition } from "@/lib/ink/use-toolbar-position";
 import type { InkMode } from "@/components/InkCanvas";
 
 export const INK_COLORS = [
@@ -105,6 +107,7 @@ export function InkToolbar({
   eraserSize: number;
   setEraserSize: (s: number) => void;
 }) {
+  const { pos, elRef, startDrag, reset } = useToolbarPosition();
   const palette = mode === "highlighter" ? HIGHLIGHT_INK_COLORS : INK_COLORS;
 
   // Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z, the shortcuts a GoodNotes user already
@@ -151,8 +154,32 @@ export function InkToolbar({
   );
 
   return (
-    <div className="pointer-events-none sticky top-2 z-30 flex justify-center px-2">
-      <div className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-2xl border border-black/[0.06] bg-[var(--surface-elevated)]/85 px-2 py-1.5 shadow-[0_8px_28px_-8px_rgba(0,0,0,0.35)] ring-1 ring-inset ring-white/40 backdrop-blur-xl">
+    <div
+      className={cn(
+        "pointer-events-none z-30 flex px-2",
+        // Once moved, it is pinned where it was put; until then it rides the
+        // top of the page as before.
+        pos ? "fixed" : "sticky top-2 justify-center",
+      )}
+      style={pos ? { left: pos.x, top: pos.y } : undefined}
+    >
+      <div
+        ref={elRef}
+        className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-2xl border border-black/[0.06] bg-[var(--surface-elevated)]/85 px-2 py-1.5 shadow-[0_8px_28px_-8px_rgba(0,0,0,0.35)] ring-1 ring-inset ring-white/40 backdrop-blur-xl"
+      >
+        {/* Grip. A writing hand covers the top of the page for a lot of
+            people — left-handers especially — so the tools have to be able to
+            move out from under it. Double-tap puts them back. */}
+        <button
+          type="button"
+          onPointerDown={startDrag}
+          onDoubleClick={reset}
+          aria-label="Move toolbar (double-tap to reset)"
+          title="Drag to move · double-tap to reset"
+          className="flex h-[38px] w-5 cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground/60 transition-colors hover:text-foreground active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
         {/* A floating palette, not a page header.
         Edge-to-edge bars with hairline borders read as browser chrome, which
         is what made this feel like a website rather than an iPad app. Lifting
