@@ -3,6 +3,7 @@ import { Trash2, Copy } from "lucide-react";
 import { getStroke } from "perfect-freehand";
 import type { InkStroke, InkTool, StrokeGeometry } from "@/lib/ink/ink-api";
 import { inkResolution } from "@/lib/ink/resolution";
+import { recognizeShape } from "@/lib/ink/shapes";
 
 export type InkMode = "off" | "select" | "pen" | "pencil" | "fineliner" | "highlighter" | "eraser";
 
@@ -15,6 +16,11 @@ const SELECTION_COLORS = ["#1f2937", "#2563eb", "#dc2626", "#059669", "#d97706"]
 
 // Corner grab size, in px. Generous because a fingertip is not a mouse.
 const HANDLE = 11;
+
+/** How long the nib must rest at the end of a stroke to ask for a shape. */
+const SHAPE_HOLD_MS = 450;
+/** Movement under this many px counts as holding still, not drawing. */
+const HOLD_SLOP = 2.5;
 
 type Point = [number, number, number];
 
@@ -194,6 +200,9 @@ export function InkCanvas({
   // Which pointer owns the stroke in flight. A stroke belongs to one pointer,
   // and only that pointer is allowed to end it.
   const strokePointerRef = useRef<number | null>(null);
+  // When the nib last actually moved. Holding still at the end of a stroke is
+  // how a shape is asked for, so the pause has to be measured.
+  const lastMovedAtRef = useRef(0);
   // The selection lives in a ref so the pointer handlers can read it without
   // re-subscribing. The action bar is DOM, though, and DOM needs React to
   // know — so every write to the ref is mirrored here.
@@ -886,7 +895,21 @@ export function InkCanvas({
       strokePointerRef.current = null;
       predicted = [];
       commitCarve();
-      const pts = activeRef.current;
+      let pts = activeRef.current;
+
+      // Held still at the end? Treat the stroke as a shape if it plainly is
+      // one. Recognition declines far more often than it fires — turning
+      // handwriting into a rectangle would be much worse than never snapping
+      // — so an unrecognised stroke is committed exactly as drawn.
+      if (
+        pts.length > 1 &&
+        isDrawTool(propsRef.current.mode) &&
+        Date.now() - lastMovedAtRef.current >= SHAPE_HOLD_MS
+      ) {
+        const w = host.offsetWidth || 1;
+        const shaped = recognizeShape(pts.map(([x, y, pr]) => [x * w, y, pr]));
+        if (shaped) pts = shaped.points.map(([x, y, pr]) => [x / w, y, pr]);
+      }
       const { mode: m, color: c, size: s, addStroke: add } = propsRef.current;
       if (pts.length > 1 && isDrawTool(m)) {
         add({ points: pts, color: c, size: s, tool: m, tMs: propsRef.current.nowMs?.() ?? null });
@@ -1100,6 +1123,7 @@ export function InkCanvas({
         /* capture unavailable — the stroke still tracks via move events */
       }
       drawingRef.current = true;
+      lastMovedAtRef.current = Date.now();
       penStrokeRef.current = e.pointerType === "pen";
       strokePointerRef.current = e.pointerId;
       const pt = pointFrom(e);
@@ -1212,6 +1236,14 @@ export function InkCanvas({
         c.pressure > 0 ? c.pressure : 0.5,
       ];
       for (const c of samples) activeRef.current.push(toPoint(c));
+
+      // Track real movement, ignoring the jitter of a hand resting at the end
+      // of a stroke — otherwise nothing would ever count as held still.
+      const prev = activeRef.current[activeRef.current.length - 2];
+      const last = activeRef.current[activeRef.current.length - 1];
+      if (!prev || Math.hypot((last[0] - prev[0]) * rect.width, last[1] - prev[1]) > HOLD_SLOP) {
+        lastMovedAtRef.current = Date.now();
+      }
 
       // Where the browser thinks the pen is heading. Ink lands under the nib
       // instead of trailing a frame or two behind it, which is most of what
