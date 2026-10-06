@@ -132,7 +132,11 @@ const ListTabs = Extension.create({
   },
 });
 
-const PAGE_HEIGHT = 1040; // px height of one "page" sheet before it rolls to the next
+/** Height of a blank writing sheet, before any slide reshapes it. */
+const PAGE_HEIGHT = 1040;
+/** Bounds for a slide-shaped page, so an odd aspect cannot produce a sliver. */
+const MIN_SLIDE_PAGE = 260;
+const MAX_SLIDE_PAGE = 1600;
 // Visual break between pages. Wide enough to read as a gap between sheets.
 const PAGE_GAP = 26;
 
@@ -681,7 +685,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
     const recompute = () => {
       if (!el.clientHeight) return;
       // 1.06 leaves the sheet a little breathing room inside the viewport.
-      const fit = el.clientHeight / (PAGE_HEIGHT * 1.06);
+      const fit = el.clientHeight / (pageHeightRef.current * 1.06);
       setFitZoom(Math.min(1, Math.max(0.4, Math.round(fit * 100) / 100)));
     };
     const ro = new ResizeObserver(recompute);
@@ -1058,6 +1062,44 @@ export function NoteEditor({ noteId, onClose }: Props) {
   // rather than fetch one. Signing happens here, at display.
   const { resolve: signSlide } = useSignedSlideUrls(slideUrls);
   const { data: aiUsage } = useAiUsage();
+
+  // A lecture slide is 16:9 and a writing sheet is portrait, so dropping one
+  // into the other left a band of dead paper above and below every slide.
+  // Pages take the deck's own shape instead, measured from the first slide —
+  // decks are uniform, and one measurement keeps every page the same height,
+  // which the page maths depends on.
+  const [slideAspect, setSlideAspect] = useState<number | null>(null);
+  const firstSlide = slideUrls.length ? signSlide(slideUrls[0]) : "";
+  useEffect(() => {
+    if (!firstSlide) {
+      setSlideAspect(null);
+      return;
+    }
+    let cancelled = false;
+    // document.createElement, not `new Image()`: the lucide Image icon is
+    // imported into this module and shadows the DOM constructor.
+    const img = document.createElement("img");
+    img.onload = () => {
+      if (!cancelled && img.naturalHeight > 0) {
+        setSlideAspect(img.naturalWidth / img.naturalHeight);
+      }
+    };
+    img.src = firstSlide;
+    return () => {
+      cancelled = true;
+    };
+  }, [firstSlide]);
+
+  // Read by handlers that are bound once and must not re-subscribe whenever
+  // the deck's shape changes.
+  const pageHeightRef = useRef(PAGE_HEIGHT);
+  const pageHeight = useMemo(() => {
+    if (!slideAspect || !natural.w) return PAGE_HEIGHT;
+    return Math.round(
+      Math.min(MAX_SLIDE_PAGE, Math.max(MIN_SLIDE_PAGE, natural.w / slideAspect + PAGE_GAP)),
+    );
+  }, [slideAspect, natural.w]);
+  pageHeightRef.current = pageHeight;
   const queryClient = useQueryClient();
   // Every AI action moves the meter, including a refused one, so refresh
   // after each rather than letting the count drift until the next focus.
@@ -1315,7 +1357,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
       const boxesBottom = boxes.reduce((m, b) => Math.max(m, b.y + 80), 0);
       const bottom = Math.max(editorBottom, boxesBottom);
       // +48 breathing room so a nearly-full page rolls to a fresh one.
-      setDerivedPages(Math.max(1, Math.ceil((bottom + 48) / PAGE_HEIGHT)));
+      setDerivedPages(Math.max(1, Math.ceil((bottom + 48) / pageHeightRef.current)));
     };
     recompute();
     const ro = new ResizeObserver(recompute);
@@ -2278,7 +2320,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                     editor?.chain().focus("end").run();
                   }
                 }}
-                style={{ minHeight: `${pageCount * PAGE_HEIGHT}px` }}
+                style={{ minHeight: `${pageCount * pageHeight}px` }}
                 className={cn(
                   "relative cursor-text rounded-2xl border border-white/20 bg-[var(--paper)] px-5 py-7 shadow-[0_12px_48px_-16px_rgba(0,0,0,0.8)] sm:px-14 sm:py-12",
                   paperCls,
@@ -2295,7 +2337,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                     aria-hidden
                     className="pointer-events-none absolute inset-x-0 z-[25] flex items-center gap-3 px-4"
                     style={{
-                      top: `${(i + 1) * PAGE_HEIGHT - PAGE_GAP / 2}px`,
+                      top: `${(i + 1) * pageHeight - PAGE_GAP / 2}px`,
                       height: `${PAGE_GAP}px`,
                       backgroundColor: "var(--canvas)",
                       boxShadow:
@@ -2320,7 +2362,7 @@ export function NoteEditor({ noteId, onClose }: Props) {
                       pageMarkersRef.current[i] = el;
                     }}
                     className="pointer-events-none absolute inset-x-0 h-px"
-                    style={{ top: `${i * PAGE_HEIGHT}px`, scrollSnapAlign: "start" }}
+                    style={{ top: `${i * pageHeight}px`, scrollSnapAlign: "start" }}
                   />
                 ))}
 
@@ -2341,8 +2383,8 @@ export function NoteEditor({ noteId, onClose }: Props) {
                       draggable={false}
                       className="pointer-events-none absolute inset-x-0 z-0 select-none object-contain"
                       style={{
-                        top: `${i * PAGE_HEIGHT}px`,
-                        height: `${PAGE_HEIGHT - PAGE_GAP}px`,
+                        top: `${i * pageHeight}px`,
+                        height: `${pageHeight - PAGE_GAP}px`,
                         width: "100%",
                       }}
                     />
