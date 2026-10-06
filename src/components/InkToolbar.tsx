@@ -3,6 +3,7 @@ import {
   Highlighter,
   Lasso,
   GripVertical,
+  ChevronsLeftRight,
   Pen,
   PenLine,
   Pencil,
@@ -13,7 +14,8 @@ import {
 } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { useToolbarPosition } from "@/lib/ink/use-toolbar-position";
+import { useToolbarDock } from "@/lib/ink/use-toolbar-dock";
+import { isVertical } from "@/lib/ink/toolbar-dock";
 import type { InkMode } from "@/components/InkCanvas";
 
 export const INK_COLORS = [
@@ -107,7 +109,8 @@ export function InkToolbar({
   eraserSize: number;
   setEraserSize: (s: number) => void;
 }) {
-  const { pos, elRef, startDrag, reset } = useToolbarPosition();
+  const { edge, collapsed, elRef, startDrag, toggleCollapsed } = useToolbarDock();
+  const vertical = isVertical(edge);
   const palette = mode === "highlighter" ? HIGHLIGHT_INK_COLORS : INK_COLORS;
 
   // Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z, the shortcuts a GoodNotes user already
@@ -156,215 +159,245 @@ export function InkToolbar({
   return (
     <div
       className={cn(
-        "pointer-events-none z-30 flex px-2",
-        // Once moved, it is pinned where it was put; until then it rides the
-        // top of the page as before.
-        pos ? "fixed" : "sticky top-2 justify-center",
+        "pointer-events-none fixed z-30 flex p-2",
+        edge === "top" && "inset-x-0 top-0 justify-center",
+        edge === "bottom" && "inset-x-0 bottom-0 justify-center",
+        edge === "left" && "inset-y-0 left-0 items-center",
+        edge === "right" && "inset-y-0 right-0 items-center",
       )}
-      style={pos ? { left: pos.x, top: pos.y } : undefined}
     >
       <div
         ref={elRef}
-        className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-2xl border border-black/[0.06] bg-[var(--surface-elevated)]/85 px-2 py-1.5 shadow-[0_8px_28px_-8px_rgba(0,0,0,0.35)] ring-1 ring-inset ring-white/40 backdrop-blur-xl"
+        className={cn(
+          "pointer-events-auto flex items-center justify-center gap-1 rounded-2xl border border-black/[0.06] bg-[var(--surface-elevated)]/85 px-2 py-1.5 shadow-[0_8px_28px_-8px_rgba(0,0,0,0.35)] ring-1 ring-inset ring-white/40 backdrop-blur-xl",
+          // Standing it up on a side edge keeps the page's full width and
+          // runs the tools down the screen instead of across it.
+          vertical ? "max-h-[92svh] flex-col overflow-y-auto" : "max-w-full flex-wrap",
+        )}
       >
         {/* Grip. A writing hand covers the top of the page for a lot of
             people — left-handers especially — so the tools have to be able to
             move out from under it. Double-tap puts them back. */}
+        {/* Grip and collapse. A writing hand covers one part of the screen
+            for everyone and a different part for left-handers, so the palette
+            has to move — but only to an edge, where it is always out of the
+            way and always findable. Collapsing hides the tools for reading a
+            page back. */}
         <button
           type="button"
           onPointerDown={startDrag}
-          onDoubleClick={reset}
-          aria-label="Move toolbar (double-tap to reset)"
-          title="Drag to move · double-tap to reset"
-          className="flex h-[38px] w-5 cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground/60 transition-colors hover:text-foreground active:cursor-grabbing"
+          aria-label="Move toolbar to another edge"
+          title="Drag to an edge"
+          className={cn(
+            "flex cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground/60 transition-colors hover:text-foreground active:cursor-grabbing",
+            vertical ? "h-5 w-[38px]" : "h-[38px] w-5",
+          )}
         >
-          <GripVertical className="h-4 w-4" />
+          <GripVertical className={cn("h-4 w-4", vertical && "rotate-90")} />
         </button>
-        {/* A floating palette, not a page header.
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "Show tools" : "Hide tools"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Show tools" : "Hide tools"}
+          className="flex h-[38px] min-w-[38px] items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+        >
+          <ChevronsLeftRight className={cn("h-4 w-4", !vertical && "rotate-90")} />
+        </button>
+        {!collapsed && (
+          <>
+            {/* A floating palette, not a page header.
         Edge-to-edge bars with hairline borders read as browser chrome, which
         is what made this feel like a website rather than an iPad app. Lifting
         it into a rounded, shadowed island over the page is most of what
         separates the two. */}
-        {/* "Select" read as a desktop arrow tool and nobody found it. It is a
+            {/* "Select" read as a desktop arrow tool and nobody found it. It is a
             lasso: circle some handwriting and you get move, resize, delete,
             duplicate and recolour. Name and icon should say so. */}
-        <Tool value="select" icon={<Lasso className="h-4 w-4" />} label="Lasso" />
-        <Tool value="pen" icon={<Pen className="h-4 w-4" />} label="Pen" />
-        <Tool value="pencil" icon={<Pencil className="h-4 w-4" />} label="Pencil" />
-        <Tool value="fineliner" icon={<PenLine className="h-4 w-4" />} label="Fine point" />
-        <Tool value="highlighter" icon={<Highlighter className="h-4 w-4" />} label="Highlighter" />
-        <Tool value="eraser" icon={<Eraser className="h-4 w-4" />} label="Eraser" />
+            <Tool value="select" icon={<Lasso className="h-4 w-4" />} label="Lasso" />
+            <Tool value="pen" icon={<Pen className="h-4 w-4" />} label="Pen" />
+            <Tool value="pencil" icon={<Pencil className="h-4 w-4" />} label="Pencil" />
+            <Tool value="fineliner" icon={<PenLine className="h-4 w-4" />} label="Fine point" />
+            <Tool
+              value="highlighter"
+              icon={<Highlighter className="h-4 w-4" />}
+              label="Highlighter"
+            />
+            <Tool value="eraser" icon={<Eraser className="h-4 w-4" />} label="Eraser" />
 
-        <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+            <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
 
-        <button
-          type="button"
-          onClick={onUndo}
-          disabled={!canUndo}
-          title="Undo (⌘Z)"
-          aria-label="Undo"
-          className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <Undo2 className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onRedo}
-          disabled={!canRedo}
-          title="Redo (⇧⌘Z)"
-          aria-label="Redo"
-          className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <Redo2 className="h-4 w-4" />
-        </button>
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Undo (⌘Z)"
+              aria-label="Undo"
+              className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Redo (⇧⌘Z)"
+              aria-label="Redo"
+              className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <Redo2 className="h-4 w-4" />
+            </button>
 
-        <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+            <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
 
-        {/* Zoom — pinch works too, but a button is needed on a laptop and for
+            {/* Zoom — pinch works too, but a button is needed on a laptop and for
           anyone who wants an exact reset. */}
-        <button
-          type="button"
-          onClick={() => setZoom(Math.max(minZoom, Math.round((zoom - 0.25) * 100) / 100))}
-          disabled={zoom <= minZoom}
-          title="Zoom out"
-          aria-label="Zoom out"
-          className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <ZoomOut className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setZoom(1)}
-          title="Reset zoom"
-          aria-label="Reset zoom"
-          className="flex h-[34px] min-w-[46px] items-center justify-center rounded-lg text-[11.5px] font-medium tabular-nums text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button
-          type="button"
-          onClick={() => setZoom(Math.min(3, Math.round((zoom + 0.25) * 100) / 100))}
-          disabled={zoom >= 3}
-          title="Zoom in"
-          aria-label="Zoom in"
-          className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          <ZoomIn className="h-4 w-4" />
-        </button>
+            <button
+              type="button"
+              onClick={() => setZoom(Math.max(minZoom, Math.round((zoom - 0.25) * 100) / 100))}
+              disabled={zoom <= minZoom}
+              title="Zoom out"
+              aria-label="Zoom out"
+              className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              title="Reset zoom"
+              aria-label="Reset zoom"
+              className="flex h-[34px] min-w-[46px] items-center justify-center rounded-lg text-[11.5px] font-medium tabular-nums text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(Math.min(3, Math.round((zoom + 0.25) * 100) / 100))}
+              disabled={zoom >= 3}
+              title="Zoom in"
+              aria-label="Zoom in"
+              className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </button>
 
-        {/* Colour and nib size mean nothing for the arrow or the eraser. */}
-        {mode === "eraser" && (
-          <>
-            <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
-            {ERASER_SIZES.map((e) => (
-              <button
-                key={e.label}
-                type="button"
-                onClick={() => setEraserSize(e.value)}
-                title={`${e.label} eraser`}
-                aria-label={`${e.label} eraser`}
-                aria-pressed={eraserSize === e.value}
-                className={cn(
-                  "flex h-[34px] min-w-[34px] items-center justify-center rounded-lg transition-colors",
-                  eraserSize === e.value
-                    ? "bg-primary/15 ring-1 ring-inset ring-primary/25"
-                    : "hover:bg-white/[0.06]",
-                )}
-              >
-                <span
-                  className="rounded-full border"
-                  style={{
-                    // Scaled down to fit the toolbar while keeping the sizes
-                    // visibly different from one another.
-                    width: `${Math.round(e.value / 2.6) + 8}px`,
-                    height: `${Math.round(e.value / 2.6) + 8}px`,
-                    borderColor:
-                      eraserSize === e.value ? "var(--primary)" : "var(--muted-foreground)",
-                  }}
-                />
-              </button>
-            ))}
-          </>
-        )}
+            {/* Colour and nib size mean nothing for the arrow or the eraser. */}
+            {mode === "eraser" && (
+              <>
+                <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+                {ERASER_SIZES.map((e) => (
+                  <button
+                    key={e.label}
+                    type="button"
+                    onClick={() => setEraserSize(e.value)}
+                    title={`${e.label} eraser`}
+                    aria-label={`${e.label} eraser`}
+                    aria-pressed={eraserSize === e.value}
+                    className={cn(
+                      "flex h-[34px] min-w-[34px] items-center justify-center rounded-lg transition-colors",
+                      eraserSize === e.value
+                        ? "bg-primary/15 ring-1 ring-inset ring-primary/25"
+                        : "hover:bg-white/[0.06]",
+                    )}
+                  >
+                    <span
+                      className="rounded-full border"
+                      style={{
+                        // Scaled down to fit the toolbar while keeping the sizes
+                        // visibly different from one another.
+                        width: `${Math.round(e.value / 2.6) + 8}px`,
+                        height: `${Math.round(e.value / 2.6) + 8}px`,
+                        borderColor:
+                          eraserSize === e.value ? "var(--primary)" : "var(--muted-foreground)",
+                      }}
+                    />
+                  </button>
+                ))}
+              </>
+            )}
 
-        {mode !== "off" && mode !== "eraser" && mode !== "select" && (
-          <>
-            <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
-            {palette.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => setColor(c.value)}
-                title={c.label}
-                aria-label={c.label}
-                aria-pressed={color === c.value}
-                className={cn(
-                  "h-6 w-6 rounded-full border transition-transform",
-                  color === c.value
-                    ? "scale-110 border-primary ring-2 ring-primary/40"
-                    : "border-border/60 hover:scale-105",
-                )}
-                style={{ backgroundColor: c.value }}
-              />
-            ))}
+            {mode !== "off" && mode !== "eraser" && mode !== "select" && (
+              <>
+                <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+                {palette.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setColor(c.value)}
+                    title={c.label}
+                    aria-label={c.label}
+                    aria-pressed={color === c.value}
+                    className={cn(
+                      "h-6 w-6 rounded-full border transition-transform",
+                      color === c.value
+                        ? "scale-110 border-primary ring-2 ring-primary/40"
+                        : "border-border/60 hover:scale-105",
+                    )}
+                    style={{ backgroundColor: c.value }}
+                  />
+                ))}
 
-            {/* Any other colour.
+                {/* Any other colour.
               A native colour input is deliberate: on iPad it opens the system
               picker — wheel, spectrum and sliders — which is a better tool
               than anything hand-rolled here, and it costs no custom UI. */}
-            <label
-              title="Custom colour"
-              className={cn(
-                "relative h-6 w-6 shrink-0 cursor-pointer rounded-full border transition-transform hover:scale-105",
-                palette.some((c) => c.value === color)
-                  ? "border-border/60"
-                  : "scale-110 border-primary ring-2 ring-primary/40",
-              )}
-              style={{
-                background: palette.some((c) => c.value === color)
-                  ? "conic-gradient(#dc2626,#d97706,#65a30d,#0d9488,#2563eb,#7c3aed,#db2777,#dc2626)"
-                  : color,
-              }}
-            >
-              <input
-                type="color"
-                value={color}
-                aria-label="Custom colour"
-                onChange={(e) => setColor(e.target.value)}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              />
-            </label>
-
-            <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
-            {PEN_SIZES.map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => setSize(s.value)}
-                title={s.label}
-                aria-label={s.label}
-                aria-pressed={size === s.value}
-                className={cn(
-                  "flex h-[34px] min-w-[34px] items-center justify-center rounded-lg transition-colors",
-                  size === s.value
-                    ? "bg-primary/15 ring-1 ring-inset ring-primary/25"
-                    : "hover:bg-white/[0.06]",
-                )}
-              >
-                <span
-                  className="rounded-full bg-current"
+                <label
+                  title="Custom colour"
+                  className={cn(
+                    "relative h-6 w-6 shrink-0 cursor-pointer rounded-full border transition-transform hover:scale-105",
+                    palette.some((c) => c.value === color)
+                      ? "border-border/60"
+                      : "scale-110 border-primary ring-2 ring-primary/40",
+                  )}
                   style={{
-                    // The swatch tracks nib width but cannot be literal at
-                    // both ends: 0.5px is invisible on a retina screen and
-                    // 8px crowds the button. A floor plus a gentle curve
-                    // keeps every size distinguishable and tappable.
-                    width: `${Math.min(14, 3 + s.value * 1.3)}px`,
-                    height: `${Math.min(14, 3 + s.value * 1.3)}px`,
-                    color: size === s.value ? "var(--primary)" : "var(--muted-foreground)",
+                    background: palette.some((c) => c.value === color)
+                      ? "conic-gradient(#dc2626,#d97706,#65a30d,#0d9488,#2563eb,#7c3aed,#db2777,#dc2626)"
+                      : color,
                   }}
-                />
-              </button>
-            ))}
+                >
+                  <input
+                    type="color"
+                    value={color}
+                    aria-label="Custom colour"
+                    onChange={(e) => setColor(e.target.value)}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                </label>
+
+                <span className="mx-1 h-6 w-px shrink-0 rounded-full bg-border/60" />
+                {PEN_SIZES.map((s) => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => setSize(s.value)}
+                    title={s.label}
+                    aria-label={s.label}
+                    aria-pressed={size === s.value}
+                    className={cn(
+                      "flex h-[34px] min-w-[34px] items-center justify-center rounded-lg transition-colors",
+                      size === s.value
+                        ? "bg-primary/15 ring-1 ring-inset ring-primary/25"
+                        : "hover:bg-white/[0.06]",
+                    )}
+                  >
+                    <span
+                      className="rounded-full bg-current"
+                      style={{
+                        // The swatch tracks nib width but cannot be literal at
+                        // both ends: 0.5px is invisible on a retina screen and
+                        // 8px crowds the button. A floor plus a gentle curve
+                        // keeps every size distinguishable and tappable.
+                        width: `${Math.min(14, 3 + s.value * 1.3)}px`,
+                        height: `${Math.min(14, 3 + s.value * 1.3)}px`,
+                        color: size === s.value ? "var(--primary)" : "var(--muted-foreground)",
+                      }}
+                    />
+                  </button>
+                ))}
+              </>
+            )}
           </>
         )}
       </div>
