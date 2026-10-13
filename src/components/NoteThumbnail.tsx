@@ -126,24 +126,27 @@ export function NoteThumbnail({
       <rect x="0" y="0" width={PAGE_W} height={PAGE_H} fill="var(--paper, #ffffff)" />
       <PaperPattern paper={paper} id={patternId} />
 
-      {/* Typed text, as weighted bars. Real glyphs are illegible at thumbnail
-          scale and cost a font load; bars convey density and layout, which is
-          what a reader actually recognises a page by. */}
-      {lines.map((line, i) => {
-        const w = Math.min(PAGE_W - 96, 120 + line.length * 11);
-        return (
-          <rect
-            key={i}
-            x="48"
-            y={70 + i * 62}
-            width={w}
-            height={i === 0 ? 26 : 18}
-            rx={i === 0 ? 6 : 5}
-            fill="currentColor"
-            opacity={i === 0 ? 0.55 : 0.28}
-          />
-        );
-      })}
+      {/* The note's own first lines.
+          These were grey bars, on the reasoning that glyphs are illegible at
+          thumbnail scale. At the size these cards actually render they are
+          not, and a wall of identical bars gives a student no way to tell one
+          lecture from another — which is the whole job of a preview. Real
+          words do it at a glance. */}
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x="48"
+          y={92 + i * 64}
+          fontSize={i === 0 ? 42 : 32}
+          fontWeight={i === 0 ? 650 : 400}
+          fill="currentColor"
+          opacity={i === 0 ? 0.85 : 0.58}
+        >
+          {/* Clipped rather than wrapped: SVG text does not wrap, and a long
+              line would otherwise run straight off the card. */}
+          {line.length > (i === 0 ? 24 : 32) ? `${line.slice(0, i === 0 ? 24 : 32)}…` : line}
+        </text>
+      ))}
 
       {paths.map((p) => (
         <path
